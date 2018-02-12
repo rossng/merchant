@@ -4,26 +4,53 @@ module Merchant where
 import GHC.Generics
 import Control.Monad (ap)
 
+data Currency = GBP | USD | EUR deriving Show
+newtype Address = Address Int deriving Show
+
 data Zero e = Zero deriving (Functor, Show)
-data One e = One deriving (Functor, Show)
+data One e = One Currency deriving (Functor, Show)
 data Give e = Give e deriving (Functor, Show)
 data And e = And e e deriving (Functor, Show)
 data Or e = Or e e deriving (Functor, Show)
+data Then e = Then e e deriving (Functor, Show)
+data Scale e = Scale Int e deriving (Functor, Show)
+data ScaleObs e = ScaleObs Address e deriving (Functor, Show)
 
 zero :: (Zero :<: f) => Free f a
 zero = inject Zero
 
-one :: (One :<: f) => Free f a
-one = inject One
+one :: (One :<: f) => Currency -> Free f a
+one c = inject (One c)
 
 give :: (Give :<: f) => Free f a -> Free f a
 give c = inject (Give c)
 
-and :: (And :<: f) => Free f a -> Free f a -> Free f a
-c1 `and` c2 = inject (And c1 c2)
+($&) :: (And :<: f) => Free f a -> Free f a -> Free f a
+c1 $& c2 = inject (And c1 c2)
 
-or :: (Or :<: f) => Free f a -> Free f a -> Free f a
-c1 `or` c2 = inject (Or c1 c2)
+cAnd :: (And :<: f) => Free f a -> Free f a -> Free f a
+cAnd = ($&)
+
+($|) :: (Or :<: f) => Free f a -> Free f a -> Free f a
+c1 $| c2 = inject (Or c1 c2)
+
+cOr :: (Or :<: f) => Free f a -> Free f a -> Free f a
+cOr = ($|)
+
+($>) :: (Then :<: f) => Free f a -> Free f a -> Free f a
+c1 $> c2 = inject (Then c1 c2)
+
+cThen :: (Then :<: f) => Free f a -> Free f a -> Free f a
+cThen = ($>)
+
+($*) :: (Scale :<: f) => Int -> Free f a -> Free f a
+k $* c = inject (Scale k c)
+
+cScale :: (Scale :<: f) => Int -> Free f a -> Free f a
+cScale = ($*)
+
+($*~) :: (ScaleObs :<: f) => Address -> Free f a -> Free f a
+obs $*~ c = inject (ScaleObs obs c)
 
 ----
 
@@ -77,20 +104,32 @@ instance Render Zero where
   render Zero = "zero"
 
 instance Render One where
-  render One = "one"
+  render (One currency) = "(one " ++ show currency ++ ")"
 
 instance Render Give where
   render (Give c) = "(give " ++ c ++ ")"
 
 instance Render And where
-  render (And c1 c2) = "(" ++ c1 ++ " `and` " ++ c2 ++ ")"
+  render (And c1 c2) = "(and " ++ c1 ++ " " ++ c2 ++ ")"
 
 instance Render Or where
-  render (Or c1 c2) = "(" ++ c1 ++ " `or` " ++ c2 ++ ")"
+  render (Or c1 c2) = "(or " ++ c1 ++ " " ++ c2 ++ ")"
+
+instance Render Then where
+  render (Then c1 c2) = "(then " ++ c1 ++ " " ++ c2 ++ ")"
+
+instance Render Scale where
+  render (Scale k c) = "(scaleK " ++ show k ++ " " ++ c ++ ")"
+
+instance Render ScaleObs where
+  render (ScaleObs obs c) = "(scaleObs (" ++ show obs ++ ") " ++ c ++ ")"
 
 ----
 
-type Contract = Free (Zero :+: One :+: Give :+: And)
+type Contract = Free (Zero :+: One :+: Give :+: And :+: Or :+: Then :+: Scale :+: ScaleObs)
 
 exampleContract :: Contract ()
-exampleContract = give zero
+exampleContract = Address 5 $*~ ((one GBP $| give zero) $> zero)
+
+renderedContract :: String
+renderedContract = pretty exampleContract
