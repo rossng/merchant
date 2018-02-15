@@ -6,6 +6,7 @@ import Control.Monad (ap)
 
 data Currency = GBP | USD | EUR deriving Show
 newtype Address = Address Int deriving Show
+newtype Time = Time Int deriving Show
 
 data Zero e = Zero deriving (Functor, Show)
 data One e = One Currency deriving (Functor, Show)
@@ -15,6 +16,7 @@ data Or e = Or e e deriving (Functor, Show)
 data Then e = Then e e deriving (Functor, Show)
 data Scale e = Scale Int e deriving (Functor, Show)
 data ScaleObs e = ScaleObs Address e deriving (Functor, Show)
+data Timebound e = Timebound Time Time e deriving (Functor, Show)
 
 zero :: (Zero :<: f) => Free f a
 zero = inject Zero
@@ -51,6 +53,9 @@ cScale = ($*)
 
 ($*~) :: (ScaleObs :<: f) => Address -> Free f a -> Free f a
 obs $*~ c = inject (ScaleObs obs c)
+
+cTimebound :: (Timebound :<: f) => Time -> Time -> Free f a -> Free f a
+cTimebound t0 t1 c = inject (Timebound t0 t1 c)
 
 ----
 
@@ -124,12 +129,59 @@ instance Render Scale where
 instance Render ScaleObs where
   render (ScaleObs obs c) = "(scaleObs (" ++ show obs ++ ") " ++ c ++ ")"
 
+instance Render Timebound where
+  render (Timebound t0 t1 c) = "(timebound (" ++ show t0 ++ ") (" ++ show t1 ++ ") " ++ c ++ ")"
+
 ----
 
-type Contract = Free (Zero :+: One :+: Give :+: And :+: Or :+: Then :+: Scale :+: ScaleObs)
+findelise :: Findel f => Free f a -> String
+findelise = handle (const "") findel
+
+findelCurrency :: Currency -> String
+findelCurrency USD = "USD"
+findelCurrency GBP = "GBP"
+findelCurrency EUR = "EUR"
+
+class Functor f => Findel f where
+  findel :: f String -> String
+
+instance (Findel f, Findel g) => Findel (f :+: g) where
+  findel (L1 x) = findel x
+  findel (R1 x) = findel x
+
+instance Findel Zero where
+  findel Zero = "Zero"
+
+instance Findel One where
+  findel (One curr) = "One(EUR)"
+
+instance Findel Give where
+  findel (Give c) = "Give(" ++ c ++ ")"
+
+instance Findel And where
+  findel (And c1 c2) = "And(" ++ c1 ++ "," ++ c2 ++ ")"
+
+instance Findel Or where
+  findel (Or c1 c2) = "Or(" ++ c1 ++ "," ++ c2 ++ ")"
+
+instance Findel Scale where
+  findel (Scale k c) = "Scale(" ++ show k ++ "," ++ c ++ ")"
+
+instance Findel ScaleObs where
+  findel (ScaleObs (Address addr) c) = "ScaleObs(" ++ show addr ++ "," ++ c ++ ")"
+
+instance Findel Timebound where
+  findel (Timebound (Time t1) (Time t2) c) = "Timebound(" ++ show t1 ++ "," ++ show t2 ++ "," ++ c ++ ")"
+
+----
+
+type Contract = Free (Zero :+: One :+: Give :+: And :+: Or :+: Scale :+: ScaleObs :+: Timebound)
 
 exampleContract :: Contract ()
-exampleContract = Address 5 $*~ ((one GBP $| give zero) $> zero)
+exampleContract = cTimebound (Time 0) (Time 4) $ Address 5 $*~ (one GBP $| give zero)
 
 renderedContract :: String
 renderedContract = pretty exampleContract
+
+findelContract :: String
+findelContract = findelise exampleContract
