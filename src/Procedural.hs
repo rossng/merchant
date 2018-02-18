@@ -8,14 +8,20 @@ import Control.Lens
 data Contract a
   = SendOne Horizon (Contract a)
   | ReceiveOne Horizon (Contract a)
-  | Scale Horizon Double (Contract a)
-  | Observe Horizon (Double -> Contract a)
-  | GetTime Horizon (Time -> Contract a)
-  | Choose Horizon (Bool -> Contract a)
+  | Scale Double (Contract a)
+  | Observe (Double -> Contract a)
+  | GetTime (Time -> Contract a)
+  | Choose (Bool -> Contract a)
+  | After Time (Contract a)
+  | And (Contract a) (Contract a)
   | Pure a
+  | Fail
+  deriving (Functor)
 
+type Amount = Double
 type Time = Int
-data Horizon = Time Time | Infinite
+type Scale = Double
+data Horizon = Time Time | Infinite deriving (Eq, Ord)
 
 sendOne :: Contract ()
 sendOne = SendOne Infinite (Pure ())
@@ -24,26 +30,19 @@ receiveOne :: Contract ()
 receiveOne = ReceiveOne Infinite (Pure ())
 
 scale :: Double -> Contract ()
-scale c = Scale Infinite c (Pure ())
+scale c = Scale c (Pure ())
 
 observe :: Contract Double
-observe = Observe Infinite Pure
+observe = Observe Pure
 
 getTime :: Contract Time
-getTime = GetTime Infinite Pure
+getTime = GetTime Pure
 
 choose :: Contract Bool
-choose = Choose Infinite Pure
+choose = Choose Pure
 
-instance Functor Contract where
-  fmap f = recur where
-    recur (Pure a) = Pure (f a)
-    recur (SendOne h cont) = SendOne h (recur cont)
-    recur (ReceiveOne h cont) = ReceiveOne h (recur cont)
-    recur (Scale h c cont) = Scale h c (recur cont)
-    recur (Observe h cont) = Observe h (recur . cont)
-    recur (GetTime h cont) = GetTime h (recur . cont)
-    recur (Choose h cont) = Choose h (recur . cont)
+after :: Time -> Contract ()
+after t = After t (Pure ())
 
 instance Applicative Contract where
   pure = Pure
@@ -51,10 +50,12 @@ instance Applicative Contract where
     recur (Pure f) = fmap f a
     recur (SendOne h cont) = SendOne h (recur cont)
     recur (ReceiveOne h cont) = ReceiveOne h (recur cont)
-    recur (Scale h c cont) = Scale h c (recur cont)
-    recur (Observe h cont) = Observe h (recur . cont)
-    recur (GetTime h cont) = GetTime h (recur . cont)
-    recur (Choose h cont) = Choose h (recur . cont)
+    recur (Scale c cont) = Scale c (recur cont)
+    recur (Observe cont) = Observe (recur . cont)
+    recur (GetTime cont) = GetTime (recur . cont)
+    recur (Choose cont) = Choose (recur . cont)
+    recur (After t cont) = After t (recur cont)
+    recur Fail = Fail
 
 instance Monad Contract where
   return = pure
@@ -62,66 +63,60 @@ instance Monad Contract where
     recur (Pure a) = f a
     recur (SendOne h cont) = SendOne h (recur cont)
     recur (ReceiveOne h cont) = ReceiveOne h (recur cont)
-    recur (Scale h c cont) = Scale h c (recur cont)
-    recur (Observe h cont) = Observe h (recur . cont)
-    recur (GetTime h cont) = GetTime h (recur . cont)
-    recur (Choose h cont) = Choose h (recur . cont)
+    recur (Scale c cont) = Scale c (recur cont)
+    recur (Observe cont) = Observe (recur . cont)
+    recur (GetTime cont) = GetTime (recur . cont)
+    recur (Choose cont) = Choose (recur . cont)
+    recur (After t cont) = After t (recur cont)
+    recur Fail = Fail
 
 getHorizon :: Contract a -> Horizon
 getHorizon (Pure a) = Infinite
 getHorizon (SendOne h cont) = h
 getHorizon (ReceiveOne h cont) = h
-getHorizon (Scale h c cont) = h
-getHorizon (Observe h cont) = h
-getHorizon (GetTime h cont) = h
-getHorizon (Choose h cont) = h
+getHorizon (Scale c cont) = Infinite
+getHorizon (Observe cont) = Infinite
+getHorizon (GetTime cont) = Infinite
+getHorizon (Choose cont) = Infinite
+getHorizon (After t cont) = Infinite
+getHorizon Fail = Infinite
 
 setHorizon :: Horizon -> Contract a -> Contract a
-setHorizon h' (Pure a) = Pure a
 setHorizon h' (SendOne h cont) = SendOne h' cont
 setHorizon h' (ReceiveOne h cont) = ReceiveOne h' cont
-setHorizon h' (Scale h c cont) = Scale h' c cont
-setHorizon h' (Observe h cont) = Observe h' cont
-setHorizon h' (GetTime h cont) = GetTime h' cont
-setHorizon h' (Choose h cont) = Choose h' cont
+setHorizon h' c = c
 
 zcb :: Double -> Time -> Time -> Contract ()
 zcb amt t1 t2 = do
   scale amt
-  receiveOne
-
-or :: Bool -> Contract a -> Contract a -> Contract a
-or decision c1 c2 = if decision then c1 else c2
-
-and :: Contract a -> Contract b -> Contract ()
-and c1 c2 = do {c1 ; c2 ; return ()}
-
-timebound :: Time -> Time -> Contract a -> Contract a
-timebound t1 t2 c = do
-  time <- getTime
-  if t1 <= time && time <= t2 then
-    c
-  else
-    timebound t1 t2 c
+  after t1
+  setHorizon (Time t2) (sendOne)
 
 data Balances = Balances { _party :: Double, _counterparty :: Double } deriving Show
 makeLenses ''Balances
 
 defaultBalances = Balances 0.0 0.0
-simpleContract = sendOne
-executionResult = runState (interpret simpleContract) defaultBalances
+simpleContract = do
+  after 0
+  scale 5.0
+  sendOne
+  scale 0.5
+  receiveOne
+executionResult = runState (interpret (1.0, 0) simpleContract) defaultBalances
 
-interpret :: Contract a -> State Balances a
-interpret (Pure a) = pure a
-interpret (SendOne h cont) = do
-  (%=) party (\x -> x - 1.0)
-  (%=) counterparty ((+) 1.0)
-  interpret cont
-interpret (ReceiveOne h cont) = do
-  (%=) party (1.0 +)
-  (%=) counterparty (\x -> x - 1.0)
-  interpret cont
-interpret (Scale h c cont) = interpret cont
-interpret (Observe h cont) = interpret (cont 2.0)
-interpret (GetTime h cont) = interpret (cont 1)
-interpret (Choose h cont) = interpret (cont True)
+interpret :: (Scale, Time) -> Contract a -> State Balances (Maybe a)
+interpret (s,t) (Pure a) = pure (Just a)
+interpret (s,t) (SendOne h cont) = do
+  (%=) party (\x -> x - s)
+  (%=) counterparty (s +)
+  interpret (s,t) cont
+interpret (s,t) (ReceiveOne h cont) = do
+  (%=) counterparty (\x -> x - s)
+  (%=) party (s +)
+  interpret (s,t) cont
+interpret (s,t) (Scale c cont) = interpret (s*c,t) cont
+interpret (s,t) (Observe cont) = interpret (s,t) (cont 2.0)
+interpret (s,t) (GetTime cont) = interpret (s,t) (cont 1)
+interpret (s,t) (Choose cont) = interpret (s,t) (cont True)
+interpret (s,t) (After t' cont) = if t >= t' then interpret (s,t) cont else interpret (s,t) Fail
+interpret (s,t) Fail = pure Nothing
