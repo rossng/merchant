@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-9.21
+resolver: lts-10.7
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -65,7 +65,5 @@ packages:
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
 extra-deps:
-  - compdata-0.11
-  - tree-view-0.5
 
 allow-newer: true

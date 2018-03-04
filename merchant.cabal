@@ -17,17 +17,17 @@ library
   hs-source-dirs:      src
   exposed-modules:     Merchant
                      , ALaCarte
-                     , ParsecExperiments
-                     , CompdataTest
                      , RedditCC
                      , Procedural
-                     , EffectHandlersScope
+                     , Declarative
+                     , Graph
   build-depends:       base >= 4.7 && < 5
                      , free
-                     , parsec
-                     , compdata
                      , mtl
                      , lens
+                     , graphviz
+                     , text
+                     , fgl
   default-language:    Haskell2010
 
 executable merchant
