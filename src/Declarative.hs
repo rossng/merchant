@@ -136,83 +136,104 @@ renderToGraph' c fp = runGraphviz (toGraph' c) Png fp
 toGraph' :: Contract () -> G.DotGraph Int
 toGraph' contract = digraph (Str "contract") (evalStateT (toDot' contract) 0)
 
+increment :: StateT Int (DotM Int) Int
+increment = do
+  identifier <- get
+  put (identifier + 1)
+  return identifier
+
 -- less naive interpreter for contracts to graphs using state
 toDot' :: Contract () -> StateT Int (DotM Int) ()
 toDot' (Pure a) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "()"]
-  put (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "()"]
 toDot' (Free (One h)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "One"]
-  put (identifier + 1)
-toDot' (Free (Scale n cont)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel (pack ("Scale " ++ show n))]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "One"]
+toDot' (Free (Scale f cont)) = do
+  n <- increment
+  lift $ node n [A.textLabel (pack ("Scale " ++ show f))]
+  lift $ n --> (n + 1)
   toDot' cont
 toDot' (Free (ScaleObs cont)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "ScaleObs"]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "ScaleObs"]
+  lift $ n --> (n + 1)
   toDot' cont
 toDot' (Free (Timebound (t1,t2) cont)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel (pack ("Timebound " ++ show t1 ++ " " ++ show t2))]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel (pack ("Timebound " ++ show t1 ++ " " ++ show t2))]
+  lift $ n --> (n + 1)
   toDot' cont
 toDot' (Free (Give cont)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "Give"]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "Give"]
+  lift $ n --> (n + 1)
   toDot' cont
 toDot' (Free (Or c1 c2)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "Or"]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "Or"]
+  lift $ n --> (n + 1)
   toDot' c1
   branch <- get
-  lift $ identifier --> branch
+  lift $ n --> branch
   toDot' c2
 toDot' (Free (And c1 c2)) = do
-  identifier <- get
-  lift $ node identifier [A.textLabel "And"]
-  put (identifier + 1)
-  lift $ identifier --> (identifier + 1)
+  n <- increment
+  lift $ node n [A.textLabel "And"]
+  lift $ n --> (n + 1)
   toDot' c1
   branch <- get
-  lift $ identifier --> branch
+  lift $ n --> branch
   toDot' c2
 
---dotAlg :: ContractF ([Int], Dot [Int]) -> ([Int], Dot [Int])
---dotAlg (One h) = ([], node [] [A.textLabel "One"])
---dotAlg (Scale n (prefix, graph)) = ((0:prefix), do
---  node (0:prefix) [A.textLabel (pack ("Scale" ++ show n))]
---  (0:prefix) --> prefix
---  graph)
---dotAlg (ScaleObs (prefix, graph)) = ((0:prefix), do
---  node (0:prefix) [A.textLabel "ScaleObs"]
---  (0:prefix) --> prefix
---  graph)
---dotAlg (Timebound (t1,t2) (prefix, graph)) = ((0:prefix), do
---  node (0:prefix) [A.textLabel (pack ("Timebound " ++ show t1 ++ " " ++ show t2))]
---  (0:prefix) --> prefix
---  graph)
---dotAlg (Give (prefix, graph)) = ((0:prefix), do
---  node (0:prefix) [A.textLabel "Give"]
---  (0:prefix) --> prefix
---  graph)
---dotAlg (Or (pfix1, grph1) (pfix2, grph2)) = ((0:prefix), do
---  node (0:prefix) [A.textLabel "Give"]
---  (0:prefix) --> prefix
---  graph)
+renderToGraphAlg :: Contract () -> FilePath -> IO FilePath
+renderToGraphAlg c fp = runGraphviz (toGraphAlg c) Png fp
 
+toGraphAlg :: Contract () -> G.DotGraph Int
+toGraphAlg contract = digraph (Str "contract") (evalStateT finalState 0)
+  where finalState = handle pure dotAlg contract
 
+dotAlg :: ContractF (StateT Int (DotM Int) ()) -> StateT Int (DotM Int) ()
+dotAlg (One h) = do
+  n <- increment -- think about whether we actually want to increment at the leaves
+  lift $ node n [A.textLabel "One"]
+dotAlg (Scale f graph) = do
+  n <- increment
+  graph
+  lift $ node n [A.textLabel (pack ("Scale" ++ show f))]
+  lift $ n --> (n + 1)
+dotAlg (ScaleObs graph) = do
+  n <- increment
+  graph
+  lift $ node n [A.textLabel "ScaleObs"]
+  lift $ n --> (n + 1)
+dotAlg (Timebound (t1,t2) graph) = do
+  n <- increment
+  graph
+  lift $ node n [A.textLabel (pack ("Timebound " ++ show t1 ++ " " ++ show t2))]
+  lift $ n --> (n + 1)
+dotAlg (Give graph) = do
+  n <- increment
+  graph
+  lift $ node n [A.textLabel "Give"]
+  lift $ n --> (n + 1)
+dotAlg (Or graph1 graph2) = do
+  n <- increment
+  graph1
+  m <- get
+  graph2
+  lift $ node n [A.textLabel "Or"]
+  lift $ n --> (n + 1)
+  lift $ n --> m
+dotAlg (And graph1 graph2) = do
+  n <- increment
+  graph1
+  m <- get
+  graph2
+  lift $ node n [A.textLabel "And"]
+  lift $ n --> (n + 1)
+  lift $ n --> m
 
 --data Balances = Balances { _party :: Double, _counterparty :: Double } deriving Show
 --makeLenses ''Balances
@@ -222,5 +243,5 @@ toDot' (Free (And c1 c2)) = do
 --  (do factor <- observe'
 --      scale' factor
 --      choose receiveOne' sendOne')
---
+
 --executionResult = runStateT (interpret (1.0, 0) simpleContract) defaultBalances
