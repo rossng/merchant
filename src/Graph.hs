@@ -90,7 +90,29 @@ instance GraphAlg OriginalF where
     lift $ n --> (n + 1)
 
 instance GraphAlg ExtendedF where
-  graphAlg = undefined --TODO
+  graphAlg (Cond o graph1 graph2) = do
+    n <- increment
+    graph1
+    m <- get
+    graph2
+    lift $ node n [A.textLabel (T.pack ("Cond " ++ show o))]
+    lift $ n --> (n+1)
+    lift $ n --> m
+  graphAlg (When o graph) = do
+    n <- increment
+    graph
+    lift $ node n [A.textLabel (T.pack ("When " ++ show o))]
+    lift $ n --> (n + 1)
+  graphAlg (AnytimeO o graph) = do
+    n <- increment
+    graph
+    lift $ node n [A.textLabel (T.pack ("Anytime " ++ show o))]
+    lift $ n --> (n + 1)
+  graphAlg (Until o graph) = do
+    n <- increment
+    graph
+    lift $ node n [A.textLabel (T.pack ("Until " ++ show o))]
+    lift $ n --> (n + 1)
 
 -- very naive interpreter for contracts to graphs using prefix list
 --toGraph :: Contract -> G.DotGraph [Int]
