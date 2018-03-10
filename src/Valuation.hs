@@ -1,0 +1,90 @@
+module Valuation where
+
+import Declarative
+
+-- from contracts.scheming.org
+--
+--type RV a = [a]
+--newtype PR a = PR { pr :: [RV a] } deriving Show
+--
+--takePr :: Int -> PR a -> PR a
+--takePr n (PR rvs) = PR $ take n rvs
+--
+--horizonPr :: PR a -> Int
+--horizonPr (PR rvs) = length rvs
+--
+--andPr :: PR Bool -> Bool
+--andPr (PR rvs) = all and rvs
+--
+--data Model = Model {
+--  modelStart :: Time,
+--  disc       :: Currency -> (PR Bool, PR Double) -> PR Double,
+--  exch       :: Currency -> Currency -> PR Double,
+--  absorb     :: Currency -> (PR Bool, PR Double) -> PR Double,
+--  rateModel  :: Currency -> PR Double
+--}
+--
+--exampleModel :: CalendarTime -> Model
+--exampleModel modelDate = Model {
+--  modelStart = (modelDate,0),
+--  disc       = disc,
+--  exch       = exch,
+--  absorb     = absorb,
+--  rateModel  = rateModel
+--}
+--  where
+--    rates :: Double -> Double -> PR Double
+--    rates rateNow delta = PR $ makeRateSlices rateNow 1
+--      where
+--        makeRateSlices rateNow n = rateSlice rateNow n : makeRateSlices (rateNow - delta) (n + 1)
+--        rateSlice minRate n = take n [minRate,minRate + (delta * 2) ..]
+--
+--    rateModels = [(EUR, rates 6.5 0.25)
+--                , (GBP, rates 8   0.5)
+--                , (USD, rates 5   1)]
+--
+--    rateModel k =
+--      fromMaybe (error $ "rateModel: currency not found " ++ show k) (lookup k rateModels)
+--
+--    disc :: Currency -> (PR Bool, PR Double) -> PR Double
+--    disc k (PR bs, PR rs) = PR $ discCalc bs rs (unPr $ rateModel k)
+--      where
+--        discCalc :: [RV Bool] -> [RV Double] -> [RV Double] -> [RV Double]
+--        discCalc (bRv:bs) (pRv:ps) (rateRv:rs) =
+--          if and bRv -- test for horizon
+--            then [pRv]
+--            else let rest@(nextSlice:_) = discCalc bs ps rs
+--                     discSlice = zipWith (\x r -> x / (1 + r/100)) (prevSlice nextSlice) rateRv
+--                     thisSlice = zipWith3 (\b p q -> if b then p else q) -- allow for partially discounted slices
+--                                  bRv pRv discSlice
+--              in thisSlice : rest
+--
+--        prevSlice :: RV Double -> RV Double
+--        prevSlice [] = []
+--        prevSlice [_] = []
+--        prevSlice (n1:rest@(n2:_)) = (n1+n2)/2 : prevSlice rest
+--
+--bigK :: a -> PR a
+--bigK x = PR (konstSlices x)
+--  where konstSlices x = nextSlice [x]
+--        nextSlice sl = sl : nextSlice (x : sl)
+--
+--datePr :: PR Time
+--datePr = PR $ timeSlices [time0]
+--  where timeSlices sl@((s,t):_) = sl : timeSlices [(s,t+1) | _ <- [0..t+1]]
+--
+--evalObs :: Observable -> PR a
+--evalObs (External s) = undefined
+----evalObs ()
+--
+--valuationAlg :: ContractF (PR Double) -> PR Double
+--valuationAlg Zero = bigK 0
+--valuationAlg (One k) = undefined
+--valuationAlg (Give c) = -c
+--valuationAlg (And c1 c2) = undefined
+--valuationAlg (Or c1 c2) = undefined
+--valuationAlg (Truncate t c) = undefined
+--valuationAlg (Then c1 c2) = undefined
+--valuationAlg (Scale n c) = undefined
+--valuationAlg (Get c) = undefined
+--valuationAlg (Anytime c) = undefined
