@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TypeOperators #-}
 module Graph where
 
 import Declarative
@@ -13,13 +13,13 @@ import qualified Data.Text.Lazy as T
 
 import ALaCarte
 
---renderToGraphAlg :: Contract -> FilePath -> IO FilePath
---renderToGraphAlg c = runGraphviz (toGraphAlg c) Png
+renderToGraphAlg :: Contract -> FilePath -> IO FilePath
+renderToGraphAlg c = runGraphviz (toGraphAlg c) Png
 
 -- proper interpreter for contract -> graph rendering
---toGraphAlg :: Contract -> G.DotGraph Int
---toGraphAlg contract = digraph (Str "contract") (evalStateT finalState 0)
---  where finalState = handle pure graphAlg contract
+toGraphAlg :: Contract -> G.DotGraph Int
+toGraphAlg contract = digraph (Str "contract") (evalStateT finalState 0)
+  where finalState = handle pure graphAlg contract
 
 class Functor f => GraphAlg f where
   graphAlg :: f (StateT Int (DotM Int) ()) -> StateT Int (DotM Int) ()
@@ -113,6 +113,10 @@ instance GraphAlg ExtendedF where
     graph
     lift $ node n [A.textLabel (T.pack ("Until " ++ show o))]
     lift $ n --> (n + 1)
+
+instance (GraphAlg f, GraphAlg g) => GraphAlg (f :+ g) where
+  graphAlg (L x) = graphAlg x
+  graphAlg (R y) = graphAlg y
 
 -- very naive interpreter for contracts to graphs using prefix list
 --toGraph :: Contract -> G.DotGraph [Int]
