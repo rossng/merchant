@@ -1,7 +1,8 @@
-{-# LANGUAGE OverloadedStrings, GADTs #-}
+{-# LANGUAGE OverloadedStrings, GADTs, TypeOperators #-}
 module Valuation where
 
 import Declarative
+import ALaCarte
 
 import qualified Data.GraphViz.Attributes as A
 import qualified Data.GraphViz.Attributes.Complete as C
@@ -13,7 +14,7 @@ import qualified Data.Text.Lazy as T
 
 import Numeric
 import Control.Monad.State
-import Control.Monad.Reader
+import Control.Monad.Free
 import Control.Lens
 
 -- this code is from Netrium: https://github.com/netrium/Netrium/blob/master/src/Valuation.hs
@@ -228,19 +229,26 @@ instance ValuationAlg ContractF where
   valuationAlg m (Scale o pr) = lift2Pr (*) (liftPr fromIntegral o') pr
     where o' = evalObs (modelStart m) o
 
+instance (ValuationAlg f, ValuationAlg g) => ValuationAlg (f :+ g) where
+  valuationAlg m (L x) = valuationAlg m x
+  valuationAlg m (R y) = valuationAlg m y
 
---instance ValuationAlg OriginalF where
---  valuationAlg (Truncate t pr) = undefined
---  valuationAlg (Then pr1 pr2) = undefined
---  valuationAlg (Get pr) = undefined
---  valuationAlg (Anytime pr) = undefined
---
---instance ValuationAlg ExtendedF where
---  valuationAlg (Cond o pr1 pr2) = undefined
---  valuationAlg (When o pr) = undefined
---  valuationAlg (AnytimeO o pr) = undefined
---  valuationAlg (Until o pr) = undefined
---
+value :: Time -> Contract -> PR Double
+value t (Pure _) = 0
+value t c = handle (const 0) (valuationAlg (simpleModel t)) c
+
+instance ValuationAlg OriginalF where
+  valuationAlg m (Truncate t pr) = undefined
+  valuationAlg m (Then pr1 pr2) = undefined
+  valuationAlg m (Get pr) = undefined
+  valuationAlg m (Anytime pr) = undefined
+
+instance ValuationAlg ExtendedF where
+  valuationAlg m (Cond o pr1 pr2) = undefined
+  valuationAlg m (When o pr) = undefined
+  valuationAlg m (AnytimeO o pr) = undefined
+  valuationAlg m (Until o pr) = undefined
+
 evalObs :: Time -> Obs a -> PR a
 evalObs _ (Constant k) = bigK k
 evalObs _ (External s) = error "External observable has unknown semantics"
@@ -251,7 +259,6 @@ evalObs t (After t') = PR $
 ------------------
 
 
---
 --takePr :: Int -> PR a -> PR a
 --takePr n (PR rvs) = PR $ take n rvs
 --
