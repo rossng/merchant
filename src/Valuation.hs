@@ -1,10 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, GADTs #-}
 module Valuation where
 
 import Declarative
-import Prelude hiding (or, min, negate, not, read, until)
 
 import qualified Data.GraphViz.Attributes as A
+import qualified Data.GraphViz.Attributes.Complete as C
 import Data.GraphViz.Types.Generalised as G
 import Data.GraphViz.Types.Monadic
 import Data.GraphViz.Commands
@@ -12,6 +12,9 @@ import Data.GraphViz.Commands
 import qualified Data.Text.Lazy as T
 
 import Numeric
+import Control.Monad.State
+import Control.Monad.Reader
+import Control.Lens
 
 -- this code is from Netrium: https://github.com/netrium/Netrium/blob/master/src/Valuation.hs
 -- Netrium is Copyright Anthony Waite, Dave Hetwett, Shaun Laurens 2009-2015, and files herein are licensed
@@ -27,6 +30,10 @@ type RV a = [a]
 -- | Truncate a value process.
 takePr :: Int -> PR a -> PR a
 takePr n (PR rvs) = PR $ take n rvs
+
+-- | Drop values from the beginning of a value process.
+dropPr :: Int -> PR a -> PR a
+dropPr n (PR rvs) = PR $ drop n rvs
 
 -- | Determines the number of time steps in a value process. Non-terminating for infinite processes.
 horizonPr :: PR a -> Int
@@ -79,16 +86,16 @@ instance Eq a => Eq (PR a) where
 
 data Model = Model {
   modelStart :: Time, -- ^ Start time for the model
-  exch :: Currency -> Currency -> PR Double -- ^ Exchange rate evolution model
+  modelExch :: Currency -> Currency -> PR Double -- ^ Exchange rate evolution model
 }
 
 simpleModel :: Time -> Model
 simpleModel modelDate = Model {
     modelStart = modelDate,
-    exch = exchModel
+    modelExch = exchModel
   }
   where exchModel :: Currency -> Currency -> PR Double
-        exchModel _ _ = undefined -- TODO
+        exchModel k1 k2 = rateModel k1 -- TODO
 
 -- | Get the exchange rate model (`exch`) for a given currency
 rateModel :: Currency -> PR Double
@@ -101,7 +108,7 @@ rateModel k = case k of
     -- | NB: not realistic!
     rates :: Double -> Double -> PR Double
     rates rateNow delta = PR $ makeRateSlices rateNow 1
-      where makeRateSlices rateNow' step = (rateSlice rateNow' step) : makeRateSlices (rateNow' - delta) (step + 1)
+      where makeRateSlices rateNow' step = rateSlice rateNow' step : makeRateSlices (rateNow' - delta) (step + 1)
             rateSlice minRate n = take n [minRate, minRate + (delta * 2) ..]
 
 bigK :: a -> PR a
@@ -115,7 +122,7 @@ konstSlices x = [x] : restSlices [x]
 -- | Calculate the previous slice in a lattice by averaging pairs of adjacent values in the given slice
 prevSlice :: RV Double -> RV Double
 prevSlice [] = []
-prevSlice (_:[]) = []
+prevSlice [_] = []
 prevSlice (n1:n2:rest) = (n1 + n2) / 2 : prevSlice (n2:rest)
 
 disc :: Currency -> (PR Bool, PR Double) -> PR Double
@@ -160,34 +167,68 @@ expectedValuePr (PR rvs) = zipWith expectedValue rvs probabilityLattice
 --------------------
 -- lattice visualisation
 
---prToGraph :: Show a => PR a -> G.DotGraph Int
---prToGraph pr = digraph (Str "lattice") (prToDot 0 pr)
---  where prToDot :: Show a => Int -> PR a -> DotM Int ()
---        prToDot n (PR (rv:rvs)) = do
---          node n [A.textLabel "Sup"]
---          mapM_ (\v ->)
+renderPrToGraph :: Show a => PR a -> FilePath -> IO FilePath
+renderPrToGraph pr = runGraphviz (prToGraph pr) Png
 
---renderPrToGraph :: Show a => PR a -> FilePath -> IO FilePath
---renderPrToGraph pr = runGraphviz (prToGraph pr) Png
+prToGraph :: Show a => PR a -> G.DotGraph Int
+prToGraph (PR pr) = digraph (Str "lattice") $ do
+    graphAttrs [C.RankDir C.FromLeft]
+    addSlices pr'
+    joinAllSlices pr'
+  where pr' = assignIds pr 0
+
+addSlices :: Show a => [RV (Int, a)] -> DotM Int ()
+addSlices [] = return ()
+addSlices (rv:rvs) = do
+  addSlice rv
+  addSlices rvs
+
+addSlice :: Show a => RV (Int, a) -> DotM Int ()
+addSlice [] = return ()
+addSlice ((n,label):vs) = do
+  node n [A.textLabel (T.pack $ show label)]
+  addSlice vs
+
+-- | Number each of the nodes in a lattice
+assignIds :: [RV a] -> Int -> [RV (Int, a)]
+assignIds [] _ = []
+assignIds (rv:rvs) n = rv' : assignIds rvs (n + length rv)
+  where rv' = zip [n..] rv
+
+joinAllSlices :: [RV (Int, a)] -> DotM Int ()
+joinAllSlices [] = return ()
+joinAllSlices [_] = return ()
+joinAllSlices (a:b:rvs) = do
+  joinSlices a b
+  joinAllSlices (b:rvs)
+
+-- | Join two slices from a lattice
+joinSlices :: RV (Int, a) -> RV (Int, a) -> DotM Int ()
+joinSlices fst snd = do
+  joinSlices' fst (init snd)
+  joinSlices' fst (tail snd)
+  where joinSlices' :: RV (Int, a) -> RV (Int, a) -> DotM Int ()
+        joinSlices' = zipWithM_ (\ (x, _) (y, _) -> x --> y)
 
 --------------------
 -- own algebra
 
---fromIntegralPR :: (Integral a, Num b) => PR a -> PR b
---fromIntegralPR pr = PR $ fmap (fmap fromIntegral) (unPr pr)
---
---class Functor f => ValuationAlg f where
---  valuationAlg :: f (PR Double) -> PR Double
---
---instance ValuationAlg ContractF where
---  valuationAlg Zero = undefined
---  valuationAlg (One k) = undefined
---  valuationAlg (Give pr) = negatePR pr
---  valuationAlg (And pr1 pr2) = addPR pr1 pr2
---  valuationAlg (Or pr1 pr2) = undefined
---  valuationAlg (Scale o pr) = multiplyPR o' pr
---    where o' = fromIntegralPR (valueObs o)
---
+fromIntegralPR :: (Integral a, Num b) => PR a -> PR b
+fromIntegralPR pr = PR $ fmap (fmap fromIntegral) (unPr pr)
+
+class Functor f => ValuationAlg f where
+  valuationAlg :: Model -> f (PR Double) -> PR Double
+
+instance ValuationAlg ContractF where
+  valuationAlg m Zero = bigK 0
+  valuationAlg m (One k) = (modelExch m) GBP k
+  valuationAlg m (Give pr) = liftPr negate pr
+  valuationAlg m (And pr1 pr2) = lift2Pr (+) pr1 pr2
+  valuationAlg m (Or pr1 pr2) = lift2PrAll max pr1 pr2
+  valuationAlg m (Scale o pr) = lift2Pr (*) (liftPr fromIntegral o') pr
+    where o' = evalObs (modelStart m) o
+
+
 --instance ValuationAlg OriginalF where
 --  valuationAlg (Truncate t pr) = undefined
 --  valuationAlg (Then pr1 pr2) = undefined
@@ -200,9 +241,12 @@ expectedValuePr (PR rvs) = zipWith expectedValue rvs probabilityLattice
 --  valuationAlg (AnytimeO o pr) = undefined
 --  valuationAlg (Until o pr) = undefined
 --
---valueObs :: Obs a -> PR a
---valueObs (Constant k) = bigK k
---valueObs (External s) = undefined
+evalObs :: Time -> Obs a -> PR a
+evalObs _ (Constant k) = bigK k
+evalObs _ (External s) = error "External observable has unknown semantics"
+evalObs t (After t') = PR $
+  unPr (takePr (t' - t) (bigK False)) ++
+  unPr (dropPr (t' - t) (bigK True))
 
 ------------------
 

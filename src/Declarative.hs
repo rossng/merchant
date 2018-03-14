@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor, OverloadedStrings, TypeOperators, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, OverlappingInstances #-}
+{-# LANGUAGE DeriveFunctor, OverloadedStrings, TypeOperators, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, OverlappingInstances, GADTs #-}
 module Declarative where
 
 import Control.Monad.Free
@@ -34,7 +34,17 @@ type Contract = Free (ContractF :+ OriginalF :+ ExtendedF) ()
 type Time = Int
 type Scale = Double
 data Horizon = Time Time | Infinite deriving (Eq, Ord, Show)
-data Obs a = External String | Constant a deriving (Show)
+
+data Obs a where
+  External :: String -> Obs Int
+  Constant :: a -> Obs a
+  After :: Time -> Obs Bool
+
+instance Show a => Show (Obs a) where
+  show (External a) = "External " ++ a
+  show (Constant c) = "Constant " ++ show c
+  show (After t) = "After " ++ show t
+
 data Currency = GBP | USD | EUR deriving (Eq, Show)
 
 zero' :: Contract
