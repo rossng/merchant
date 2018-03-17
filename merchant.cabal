@@ -20,6 +20,7 @@ library
                      , Valuation
                      , Render
                      , Graph
+                     , Chart
   build-depends:       base >= 4.7 && < 5
                      , free
                      , mtl
@@ -27,6 +28,8 @@ library
                      , graphviz
                      , text
                      , fgl
+                     , Chart
+                     , Chart-diagrams
   default-language:    Haskell2010
 
 executable merchant

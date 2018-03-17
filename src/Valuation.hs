@@ -87,7 +87,7 @@ instance Eq a => Eq (PR a) where
 
 data Model = Model {
   modelStart :: Time, -- ^ Start time for the model
-  modelExch :: Currency -> Currency -> PR Double -- ^ Exchange rate evolution model
+  modelExch :: Currency -> Currency -> PR Double -- ^ Exchange rate evolution model (k1 -> k2)
 }
 
 simpleModel :: Time -> Model
@@ -96,21 +96,21 @@ simpleModel modelDate = Model {
     modelExch = exchModel
   }
   where exchModel :: Currency -> Currency -> PR Double
-        exchModel k1 k2 = rateModel k1 -- TODO
+        exchModel k1 k2 = lift2PrAll (/) (rateModel k1) (rateModel k2) -- TODO
 
 -- | Get the exchange rate model (`exch`) for a given currency
 rateModel :: Currency -> PR Double
 rateModel k = case k of
-  GBP -> rates 1 0.1
-  USD -> rates 0.7 0.1
-  EUR -> rates 0.9 0.1
-  where
-    -- | Construct a lattice of possible interest rates given the starting rate and per-timestep increment.
-    -- | NB: not realistic!
-    rates :: Double -> Double -> PR Double
-    rates rateNow delta = PR $ makeRateSlices rateNow 1
-      where makeRateSlices rateNow' step = rateSlice rateNow' step : makeRateSlices (rateNow' - delta) (step + 1)
-            rateSlice minRate n = take n [minRate, minRate + (delta * 2) ..]
+  GBP -> rateLattice 1 0.0
+  USD -> rateLattice 0.7 0.01
+  EUR -> rateLattice 0.9 0.01
+
+-- | Construct a lattice of possible interest rates given the starting rate and per-timestep increment.
+-- | NB: not realistic!
+rateLattice :: Double -> Double -> PR Double
+rateLattice rateNow delta = PR $ makeRateSlices rateNow 1
+  where makeRateSlices rateNow' step = rateSlice rateNow' step : makeRateSlices (rateNow' - delta) (step + 1)
+        rateSlice minRate n = take n [minRate, minRate + (delta * 2) ..]
 
 bigK :: a -> PR a
 bigK x = PR (konstSlices x)
@@ -218,36 +218,37 @@ fromIntegralPR :: (Integral a, Num b) => PR a -> PR b
 fromIntegralPR pr = PR $ fmap (fmap fromIntegral) (unPr pr)
 
 class Functor f => ValuationAlg f where
-  valuationAlg :: Model -> f (PR Double) -> PR Double
+  valuationAlg :: Model -> Currency -> f (PR Double) -> PR Double
 
 instance ValuationAlg ContractF where
-  valuationAlg m Zero = bigK 0
-  valuationAlg m (One k) = (modelExch m) GBP k
-  valuationAlg m (Give pr) = liftPr negate pr
-  valuationAlg m (And pr1 pr2) = lift2Pr (+) pr1 pr2
-  valuationAlg m (Or pr1 pr2) = lift2PrAll max pr1 pr2
-  valuationAlg m (Scale o pr) = lift2Pr (*) (liftPr fromIntegral o') pr
+  valuationAlg m k Zero = bigK 0
+  valuationAlg m k (One k') = modelExch m k' k
+  valuationAlg m k (Give pr) = liftPr negate pr
+  valuationAlg m k (And pr1 pr2) = lift2Pr (+) pr1 pr2
+  valuationAlg m k (Or pr1 pr2) = lift2PrAll max pr1 pr2
+  valuationAlg m k (Scale o pr) = lift2Pr (*) (liftPr fromIntegral o') pr
     where o' = evalObs (modelStart m) o
 
 instance (ValuationAlg f, ValuationAlg g) => ValuationAlg (f :+ g) where
-  valuationAlg m (L x) = valuationAlg m x
-  valuationAlg m (R y) = valuationAlg m y
+  valuationAlg m k (L x) = valuationAlg m k x
+  valuationAlg m k (R y) = valuationAlg m k y
 
-value :: Time -> Contract -> PR Double
-value t (Pure _) = 0
-value t c = handle (const 0) (valuationAlg (simpleModel t)) c
+-- | Value a contract c starting at time t in currency c
+valueProcess :: Currency -> Time -> Contract -> PR Double
+valueProcess k t (Pure _) = 0
+valueProcess k t c = handle (const 0) (valuationAlg (simpleModel t) k) c
 
 instance ValuationAlg OriginalF where
-  valuationAlg m (Truncate t pr) = undefined
-  valuationAlg m (Then pr1 pr2) = undefined
-  valuationAlg m (Get pr) = undefined
-  valuationAlg m (Anytime pr) = undefined
+  valuationAlg m k (Truncate t pr) = undefined
+  valuationAlg m k (Then pr1 pr2) = undefined
+  valuationAlg m k (Get pr) = undefined
+  valuationAlg m k (Anytime pr) = undefined
 
 instance ValuationAlg ExtendedF where
-  valuationAlg m (Cond o pr1 pr2) = undefined
-  valuationAlg m (When o pr) = undefined
-  valuationAlg m (AnytimeO o pr) = undefined
-  valuationAlg m (Until o pr) = undefined
+  valuationAlg m k (Cond o pr1 pr2) = undefined
+  valuationAlg m k (When o pr) = undefined
+  valuationAlg m k (AnytimeO o pr) = undefined
+  valuationAlg m k (Until o pr) = undefined
 
 evalObs :: Time -> Obs a -> PR a
 evalObs _ (Constant k) = bigK k
