@@ -2,6 +2,9 @@
 module Graph where
 
 import Declarative
+import ALaCarte
+import Observable
+import Render
 
 import qualified Data.GraphViz.Attributes as A
 import Data.GraphViz.Types.Generalised as G
@@ -11,7 +14,6 @@ import Data.GraphViz.Commands
 import Control.Monad.State
 import qualified Data.Text.Lazy as T
 
-import ALaCarte
 
 renderToGraphAlg :: Contract -> FilePath -> IO FilePath
 renderToGraphAlg c = runGraphviz (toGraphAlg c) Png
@@ -61,7 +63,7 @@ instance GraphAlg ContractF where
   graphAlg (Scale f graph) = do
     n <- increment
     graph
-    lift $ node n [A.textLabel (T.pack ("Scale" ++ show f))]
+    lift $ node n [A.textLabel (T.pack ("Scale " ++ printObservable f))]
     lift $ n --> (n + 1)
 
 instance GraphAlg OriginalF where
@@ -95,23 +97,23 @@ instance GraphAlg ExtendedF where
     graph1
     m <- get
     graph2
-    lift $ node n [A.textLabel (T.pack ("Cond " ++ show o))]
+    lift $ node n [A.textLabel (T.pack ("Cond " ++ printObservable o))]
     lift $ n --> (n+1)
     lift $ n --> m
   graphAlg (When o graph) = do
     n <- increment
     graph
-    lift $ node n [A.textLabel (T.pack ("When " ++ show o))]
+    lift $ node n [A.textLabel (T.pack ("When " ++ printObservable o))]
     lift $ n --> (n + 1)
   graphAlg (AnytimeO o graph) = do
     n <- increment
     graph
-    lift $ node n [A.textLabel (T.pack ("Anytime " ++ show o))]
+    lift $ node n [A.textLabel (T.pack ("Anytime " ++ printObservable o))]
     lift $ n --> (n + 1)
   graphAlg (Until o graph) = do
     n <- increment
     graph
-    lift $ node n [A.textLabel (T.pack ("Until " ++ show o))]
+    lift $ node n [A.textLabel (T.pack ("Until " ++ printObservable o))]
     lift $ n --> (n + 1)
 
 instance (GraphAlg f, GraphAlg g) => GraphAlg (f :+ g) where

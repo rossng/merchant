@@ -5,6 +5,7 @@ import Graphics.Rendering.Chart.Backend.Diagrams(toFile)
 
 import Declarative
 import Valuation
+import Observable
 
 mkChart = toFile def "mychart.svg" $ do
     layout_title .= "`One GBP` value"

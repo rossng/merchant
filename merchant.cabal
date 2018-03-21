@@ -21,6 +21,8 @@ library
                      , Render
                      , Graph
                      , Chart
+                     , Observable
+                     , Solidity
   build-depends:       base >= 4.7 && < 5
                      , free
                      , mtl
@@ -30,6 +32,7 @@ library
                      , fgl
                      , Chart
                      , Chart-diagrams
+                     , neat-interpolation
   default-language:    Haskell2010
 
 executable merchant

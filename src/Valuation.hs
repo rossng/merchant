@@ -3,6 +3,7 @@ module Valuation where
 
 import Declarative
 import ALaCarte
+import Observable
 
 import qualified Data.GraphViz.Attributes as A
 import qualified Data.GraphViz.Attributes.Complete as C

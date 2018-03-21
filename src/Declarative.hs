@@ -5,6 +5,7 @@ import Control.Monad.Free
 import Control.Lens
 
 import ALaCarte
+import Observable
 
 data ContractF next
   = Zero
@@ -31,19 +32,7 @@ data ExtendedF next
 
 type Contract = Free (ContractF :+ OriginalF :+ ExtendedF) ()
 
-type Time = Int
-type Scale = Double
 data Horizon = Time Time | Infinite deriving (Eq, Ord, Show)
-
-data Obs a where
-  External :: String -> Obs Int
-  Constant :: a -> Obs a
-  After :: Time -> Obs Bool
-
-instance Show a => Show (Obs a) where
-  show (External a) = "External " ++ a
-  show (Constant c) = "Constant " ++ show c
-  show (After t) = "After " ++ show t
 
 data Currency = GBP | USD | EUR deriving (Eq, Show)
 
