@@ -14,12 +14,12 @@ class Functor f => SolidityAlg f where
 instance SolidityAlg ContractF where
   ethereumAlg Zero = Solidity
 
-zeroS :: T.Text
-zeroS =
+zeroS :: T.Text -> T.Text
+zeroS a =
   [text|
-contract Zero is BaseContract {
-    function Zero(Marketplace marketplace) BaseContract(marketplace) public {
-        kill();
-    }
-}
+  contract Zero_${a} is BaseContract {
+      function Zero(Marketplace marketplace) BaseContract(marketplace) public {
+          kill();
+      }
+  }
   |]

@@ -23,6 +23,7 @@ library
                      , Chart
                      , Observable
                      , Solidity
+                     , Ethereum
   build-depends:       base >= 4.7 && < 5
                      , free
                      , mtl
@@ -33,6 +34,12 @@ library
                      , Chart
                      , Chart-diagrams
                      , neat-interpolation
+                     , aeson
+                     , iso8601-time
+                     , time
+                     , process
+                     , attoparsec
+                     , bytestring
   default-language:    Haskell2010
 
 executable merchant
