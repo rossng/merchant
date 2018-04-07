@@ -40,6 +40,8 @@ library
                      , process
                      , attoparsec
                      , bytestring
+                     , containers
+                     , permute
   default-language:    Haskell2010
 
 executable merchant
