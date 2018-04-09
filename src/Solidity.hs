@@ -54,53 +54,71 @@ instance SolidityObservable Bool where
           b2' = toSolidityLiteral b2
 
 class Functor f => SolidityAlg f where
-  solidityAlg :: f (State Solidity T.Text) -> State Solidity T.Text
+  solidityAlg :: f (State Solidity (T.Text, Horizon)) -> State Solidity (T.Text, Horizon)
 
 addClass cls sources = cls : sources
 
 instance SolidityAlg ContractF where
   solidityAlg Zero = do
+    let horizon = Infinite
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ zeroS (showt n))
-    return ("Zero_" `T.append` showt n)
+    source %= (addClass $ zeroS horizon (showt n))
+    return ("Zero_" `T.append` showt n, horizon)
   solidityAlg (One k) = do
+    let horizon = Infinite
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ oneS k (showt n))
-    return ("One_" `T.append` showt n)
+    source %= (addClass $ oneS horizon k (showt n))
+    return ("One_" `T.append` showt n, horizon)
   solidityAlg (Give c) = do
     counter %= (+1)
     n <- use counter
-    className <- c
-    source %= (addClass $ giveS className (showt n))
-    return ("Give_" `T.append` showt n)
+    (className, horizon) <- c
+    source %= (addClass $ giveS horizon className (showt n))
+    return ("Give_" `T.append` showt n, horizon)
   solidityAlg (And c1 c2) = do
-    className1 <- c1
-    className2 <- c2
+    (className1, horizon1) <- c1
+    (className2, horizon2) <- c2
+    let horizon = max horizon1 horizon2
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ andS className1 className2 (showt n))
-    return ("And_" `T.append` showt n)
+    source %= (addClass $ andS horizon className1 className2 (showt n))
+    return ("And_" `T.append` showt n, horizon)
   solidityAlg (Or c1 c2) = do
-    className1 <- c1
-    className2 <- c2
+    (className1, horizon1) <- c1
+    (className2, horizon2) <- c2
+    let horizon = max horizon1 horizon2
     counter %= (+1)
     n <- use counter
     o <- showt . length <$> use runtimeObservables
     runtimeObservables %= (++ [SBool])
     let observableLiteral = [text|wrapper_.obs${o}_.getValue()|]
-    source %= (addClass $ orS className1 className2 observableLiteral (showt n))
-    return ("Or_" `T.append` showt n)
+    source %= (addClass $ orS horizon className1 className2 observableLiteral (showt n))
+    return ("Or_" `T.append` showt n, horizon)
   solidityAlg (Scale obs c) = do
-    className <- c
+    (className, horizon) <- c
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ scaleS className (toSolidityLiteral obs) (showt n))
-    return ("Scale_" `T.append` showt n)
+    source %= (addClass $ scaleS horizon className (toSolidityLiteral obs) (showt n))
+    return ("Scale_" `T.append` showt n, horizon)
 
 instance SolidityAlg OriginalF where
-  solidityAlg = undefined
+  solidityAlg (Truncate t c) = do
+    (className, horizon1) <- c
+    let horizon = min horizon1 (Time t)
+    counter %= (+1)
+    n <- use counter
+    source %= (addClass $ truncateS horizon className (showt t) (showt n))
+    return ("Truncate_" `T.append` showt n, horizon)
+  solidityAlg (Then c1 c2) = do
+    (className1, horizon1) <- c1
+    (className2, horizon2) <- c2
+    let horizon = max horizon1 horizon2
+    counter %= (+1)
+    n <- use counter
+    source %= (addClass $ thenS horizon className1 className2 horizon1 horizon2 (showt n))
+    return ("Then_" `T.append` showt n, horizon)
 
 instance SolidityAlg ExtendedF where
   solidityAlg = undefined
@@ -110,8 +128,8 @@ instance (SolidityAlg f, SolidityAlg g) => SolidityAlg (f :+ g) where
   solidityAlg (L x) = solidityAlg x
   solidityAlg (R y) = solidityAlg y
 
-makeClass :: T.Text -> T.Text -> T.Text
-makeClass className proceed =
+makeClass :: Horizon -> T.Text -> T.Text -> T.Text
+makeClass horizon className proceed =
   [text|
   contract ${className} is BaseContract {
       WrapperContract public wrapper_;
@@ -120,16 +138,26 @@ makeClass className proceed =
       }
 
       function proceed() public whenAlive {
+          ${horizonCheck}
           ${proceed}
       }
   }
   |]
+  where
+    horizonCheck = case horizon of
+      Time t -> let t' = showt t in [text|
+        if(now > ${t'}) {
+            kill();
+            return;
+        }
+      |]
+      Infinite -> ""
 
-zeroS :: T.Text -> T.Text
-zeroS n = makeClass [text|Zero_${n}|] "kill();"
+zeroS :: Horizon -> T.Text -> T.Text
+zeroS horizon n = makeClass horizon [text|Zero_${n}|] "kill();"
 
-oneS :: Currency -> T.Text -> T.Text
-oneS k n = makeClass
+oneS :: Horizon -> Currency -> T.Text -> T.Text
+oneS horizon k n = makeClass horizon
   [text|One_${n}|]
   [text|
   marketplace_.receive(Marketplace.Commodity.${k'}, 1);
@@ -141,8 +169,8 @@ oneS k n = makeClass
     currency EUR = "EUR"
     k' = currency k
 
-giveS :: T.Text -> T.Text -> T.Text
-giveS className n = makeClass
+giveS :: Horizon -> T.Text -> T.Text -> T.Text
+giveS horizon className n = makeClass horizon
   [text|Give_${n}|]
   [text|
   ${className} next = new ${className}(marketplace_, scale_, wrapper_);
@@ -150,8 +178,8 @@ giveS className n = makeClass
   kill();
   |]
 
-andS :: T.Text -> T.Text -> T.Text -> T.Text
-andS className1 className2 n = makeClass
+andS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+andS horizon className1 className2 n = makeClass horizon
   [text|And_${n}|]
   [text|
   ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
@@ -163,8 +191,8 @@ andS className1 className2 n = makeClass
   kill();
   |]
 
-orS :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-orS className1 className2 obs n = makeClass
+orS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
+orS horizon className1 className2 obs n = makeClass horizon
   [text|Or_${n}|]
   [text|
   if (${obs}) {
@@ -179,8 +207,8 @@ orS className1 className2 obs n = makeClass
   kill();
   |]
 
-scaleS :: T.Text -> T.Text -> T.Text -> T.Text
-scaleS className factor n = makeClass
+scaleS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+scaleS horizon className factor n = makeClass horizon
   [text|Scale_${n}|]
   [text|
   ${className} next = new ${className}(marketplace_, scale_ * ${factor}, wrapper_);
@@ -189,12 +217,88 @@ scaleS className factor n = makeClass
   kill();
   |]
 
---truncateS :: T.Text -> T.Text -> T.Text
---truncateS className time = makeClass
---  [text|Truncate_${n}|]
---  [text|
---  if (time
---  |]
+truncateS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+truncateS horizon className time n = makeClass horizon
+  [text|Truncate_${n}|]
+  [text|
+  if (now <= ${time}) {
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next);
+      next.proceed();
+  }
+  kill();
+  |]
+
+thenS :: Horizon -> T.Text -> T.Text -> Horizon -> Horizon -> T.Text -> T.Text
+thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
+  [text|Then_${n}|]
+  [text|
+  if (${horizon1'}) {
+      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next1);
+      next1.proceed();
+  } else if (${horizon2'}) {
+      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next2);
+      next2.proceed();
+  }
+  kill();
+  |]
+  where
+    horizon1' = case horizon1 of
+      Time t -> let t' = showt t in [text|now <= ${t'}|]
+      Infinite -> "true"
+    horizon2' = case horizon2 of
+      Time t -> let t' = showt t in [text|now <= ${t'}|]
+      Infinite -> "false"
+
+
+getS :: Horizon -> T.Text -> T.Text -> T.Text
+getS horizon className n = makeClass horizon
+  [text|Get_${n}|]
+  [text|
+  if (${horizon'}) {
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next);
+      next.proceed();
+      kill();
+  }
+  |]
+  where
+    horizon' = case horizon of
+      Time t -> let t' = showt t in [text|now == ${t'}|]
+      Infinite -> "false"
+
+anytimeS :: Horizon -> T.Text -> T.Text -> T.Text
+anytimeS horizon className n =
+  [text|
+  contract Anytime_${n} is BaseContract {
+      bool public ready_;
+      WrapperContract public wrapper_;
+      function Anytime_${n}(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
+          wrapper_ = wrapper;
+      }
+
+      function proceed() public whenAlive {
+          if (${horizonCheck}) {
+              kill();
+              return;
+          }
+          if (!ready_) {
+              ready_ = true;
+          } else {
+              ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+              marketplace_.delegate(next);
+              next.proceed();
+              kill();
+          }
+      }
+  }
+  |]
+  where
+    horizonCheck = case horizon of
+      Time t -> let t' = showt t in [text|now > ${t'}|]
+      Infinite -> [text|false|]
 
 wrapper :: [SType] -> T.Text -> T.Text
 wrapper observableTypes rootClass =
@@ -229,5 +333,5 @@ compileContract :: Contract -> T.Text
 compileContract (Pure _) = ""
 compileContract c = T.concat $ (wrapper (solidity ^. runtimeObservables) rootClass) : (solidity ^. source)
   where
-    compileState = handle (const $ return "") solidityAlg c
-    (rootClass, solidity) = runState compileState initialSolidity
+    compileState = handle (const $ return ("", Infinite)) solidityAlg c
+    ((rootClass, horizon), solidity) = runState compileState initialSolidity
