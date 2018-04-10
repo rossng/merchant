@@ -119,6 +119,18 @@ instance SolidityAlg OriginalF where
     n <- use counter
     source %= (addClass $ thenS horizon className1 className2 horizon1 horizon2 (showt n))
     return ("Then_" `T.append` showt n, horizon)
+  solidityAlg (Get c) = do
+    (className, horizon) <- c
+    counter %= (+1)
+    n <- use counter
+    source %= (addClass $ getS horizon className (showt n))
+    return ("Get_" `T.append` showt n, horizon)
+  solidityAlg (Anytime c) = do
+    (className, horizon) <- c
+    counter %= (+1)
+    n <- use counter
+    source %= (addClass $ anytimeS horizon className (showt n))
+    return ("Anytime_" `T.append` showt n, horizon)
 
 instance SolidityAlg ExtendedF where
   solidityAlg = undefined
