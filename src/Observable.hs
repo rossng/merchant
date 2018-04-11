@@ -12,3 +12,5 @@ data Obs a where
   Constant :: a -> Obs a
   After :: Time -> Obs Bool
   OAnd :: Obs Bool -> Obs Bool -> Obs Bool
+  OGreaterThan :: Obs Int -> Obs Int -> Obs Bool
+  OSubtract :: Obs Int -> Obs Int -> Obs Int

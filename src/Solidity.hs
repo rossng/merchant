@@ -30,6 +30,7 @@ data SObservable = SObservable SType SObservableAddress
 class SolidityObservable a where
   toSolidityObservable :: Obs a -> SObservable
   toSolidityLiteral :: Obs a -> T.Text
+  toSolidityTimestamp :: Obs a -> T.Text
 
 instance SolidityObservable Int where
   toSolidityObservable (External addr) = SObservable SInt (PredefinedAddress addr)
@@ -37,6 +38,9 @@ instance SolidityObservable Int where
   toSolidityLiteral (External addr) = [text|ObservableInt(${addr'}).getValue()|]
     where addr' = showt addr
   toSolidityLiteral (Constant n) = showt n
+  toSolidityTimestamp (External addr) = [text|ObservableInt(${addr'}).getTimestamp()|]
+    where addr' = showt addr
+  toSolidityTimestamp (Constant n) = "0"
 
 instance SolidityObservable Bool where
   toSolidityObservable (External addr) = SObservable SBool (PredefinedAddress addr)
@@ -52,6 +56,14 @@ instance SolidityObservable Bool where
   toSolidityLiteral (OAnd b1 b2) = [text|${b1'} && ${b2'}|]
     where b1' = toSolidityLiteral b1
           b2' = toSolidityLiteral b2
+  toSolidityTimestamp (External addr) = [text|ObservableBool(${addr'}).getTimestamp()|]
+    where addr' = showt addr
+  toSolidityTimestamp (Constant b) = "0"
+  toSolidityTimestamp (After t) = [text|((now <= ${t'}) ? 0 : ${t'})|]
+    where t' = showt t
+  toSolidityTimestamp (OAnd b1 b2) = [text|(${b1'} > ${b2'} ? ${b1'} : ${b2'})|]
+    where b1' = toSolidityTimestamp b1
+          b2' = toSolidityTimestamp b2
 
 class Functor f => SolidityAlg f where
   solidityAlg :: f (State Solidity (T.Text, Horizon)) -> State Solidity (T.Text, Horizon)
@@ -298,7 +310,7 @@ anytimeS horizon className n =
           }
           if (!ready_) {
               ready_ = true;
-          } else {
+          } else if (msg.sender == marketplace_.contracts_[this].holder) {
               ${className} next = new ${className}(marketplace_, scale_, wrapper_);
               marketplace_.delegate(next);
               next.proceed();
@@ -311,6 +323,31 @@ anytimeS horizon className n =
     horizonCheck = case horizon of
       Time t -> let t' = showt t in [text|now > ${t'}|]
       Infinite -> [text|false|]
+
+condS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
+condS horizon className1 className2 obs n = makeClass horizon
+  [text|Cond_${n}|]
+  [text|
+  if (${obs}) {
+      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next1);
+      next1.proceed();
+  } else {
+      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next2);
+      next2.proceed();
+  }
+  kill();
+  |]
+
+whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
+whenS horizon className obs timestamp n = makeClass horizon
+  [text|When_${n}|]
+  [text|
+  if (${timestamp} == now && ${obs}) {
+      ${className}
+  }
+  |]
 
 wrapper :: [SType] -> T.Text -> T.Text
 wrapper observableTypes rootClass =
