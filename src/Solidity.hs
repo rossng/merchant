@@ -12,12 +12,13 @@ import Control.Monad.Free
 import Declarative
 import ALaCarte
 import Observable
+import SolidityObservable
 
-data SType = SInt | SBool
 data Solidity = Solidity {
   _source :: [T.Text],
   _counter :: Int,
-  _runtimeObservables :: [SType]
+  _runtimeObservables :: [SType],
+  _observableState :: ObsCompileState
 }
 makeLenses ''Solidity
 
@@ -35,10 +36,10 @@ class SolidityObservable a where
 instance SolidityObservable Int where
   toSolidityObservable (External addr) = SObservable SInt (PredefinedAddress addr)
   toSolidityObservable (Constant n) = SObservable SInt Unaddressed
-  toSolidityLiteral (External addr) = [text|ObservableInt(${addr'}).getValue()|]
+  toSolidityLiteral (External addr) = [text|IntObservable(${addr'}).getValue()|]
     where addr' = showt addr
   toSolidityLiteral (Constant n) = showt n
-  toSolidityTimestamp (External addr) = [text|ObservableInt(${addr'}).getTimestamp()|]
+  toSolidityTimestamp (External addr) = [text|IntObservable(${addr'}).getTimestamp()|]
     where addr' = showt addr
   toSolidityTimestamp (Constant n) = "0"
 
@@ -47,7 +48,7 @@ instance SolidityObservable Bool where
   toSolidityObservable (Constant b) = SObservable SBool Unaddressed
   toSolidityObservable (After t) = SObservable SBool Unaddressed
   toSolidityObservable (OAnd b1 b2) = SObservable SBool Unaddressed
-  toSolidityLiteral (External addr) = [text|ObservableBool(${addr'}).getValue()|]
+  toSolidityLiteral (External addr) = [text|BoolObservable(${addr'}).getValue()|]
     where addr' = showt addr
   toSolidityLiteral (Constant True) = "true"
   toSolidityLiteral (Constant False) = "false"
@@ -56,7 +57,7 @@ instance SolidityObservable Bool where
   toSolidityLiteral (OAnd b1 b2) = [text|${b1'} && ${b2'}|]
     where b1' = toSolidityLiteral b1
           b2' = toSolidityLiteral b2
-  toSolidityTimestamp (External addr) = [text|ObservableBool(${addr'}).getTimestamp()|]
+  toSolidityTimestamp (External addr) = [text|BoolObservable(${addr'}).getTimestamp()|]
     where addr' = showt addr
   toSolidityTimestamp (Constant b) = "0"
   toSolidityTimestamp (After t) = [text|((now <= ${t'}) ? 0 : ${t'})|]
@@ -65,29 +66,31 @@ instance SolidityObservable Bool where
     where b1' = toSolidityTimestamp b1
           b2' = toSolidityTimestamp b2
 
+obsSolidityAlg :: Solidifiable a => Obs a -> State ObsCompileState T.Text
+obsSolidityAlg obs = compileSolidityObs graph (graph !! rootIdx)
+  where (rootIdx, graph) = runState (obsToGraph obs) []
+
 class Functor f => SolidityAlg f where
   solidityAlg :: f (State Solidity (T.Text, Horizon)) -> State Solidity (T.Text, Horizon)
-
-addClass cls sources = cls : sources
 
 instance SolidityAlg ContractF where
   solidityAlg Zero = do
     let horizon = Infinite
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ zeroS horizon (showt n))
+    source %= addClass (zeroS horizon (showt n))
     return ("Zero_" `T.append` showt n, horizon)
   solidityAlg (One k) = do
     let horizon = Infinite
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ oneS horizon k (showt n))
+    source %= addClass (oneS horizon k (showt n))
     return ("One_" `T.append` showt n, horizon)
   solidityAlg (Give c) = do
     counter %= (+1)
     n <- use counter
     (className, horizon) <- c
-    source %= (addClass $ giveS horizon className (showt n))
+    source %= addClass (giveS horizon className (showt n))
     return ("Give_" `T.append` showt n, horizon)
   solidityAlg (And c1 c2) = do
     (className1, horizon1) <- c1
@@ -95,7 +98,7 @@ instance SolidityAlg ContractF where
     let horizon = max horizon1 horizon2
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ andS horizon className1 className2 (showt n))
+    source %= addClass (andS horizon className1 className2 (showt n))
     return ("And_" `T.append` showt n, horizon)
   solidityAlg (Or c1 c2) = do
     (className1, horizon1) <- c1
@@ -106,59 +109,91 @@ instance SolidityAlg ContractF where
     o <- showt . length <$> use runtimeObservables
     runtimeObservables %= (++ [SBool])
     let observableLiteral = [text|wrapper_.obs${o}_.getValue()|]
-    source %= (addClass $ orS horizon className1 className2 observableLiteral (showt n))
+    source %= addClass (orS horizon className1 className2 observableLiteral (showt n))
     return ("Or_" `T.append` showt n, horizon)
   solidityAlg (Scale obs c) = do
     (className, horizon) <- c
     counter %= (+1)
     n <- use counter
-    source %= (addClass $ scaleS horizon className (toSolidityLiteral obs) (showt n))
+    obs <- zoom observableState (obsSolidityAlg obs)
+    source %= addClass (scaleS horizon className obs (showt n))
     return ("Scale_" `T.append` showt n, horizon)
 
 instance SolidityAlg OriginalF where
   solidityAlg (Truncate t c) = do
     (className, horizon1) <- c
     let horizon = min horizon1 (Time t)
-    counter %= (+1)
+    counter += 1
     n <- use counter
-    source %= (addClass $ truncateS horizon className (showt t) (showt n))
+    source %= addClass (truncateS horizon className (showt t) (showt n))
     return ("Truncate_" `T.append` showt n, horizon)
   solidityAlg (Then c1 c2) = do
     (className1, horizon1) <- c1
     (className2, horizon2) <- c2
     let horizon = max horizon1 horizon2
-    counter %= (+1)
+    counter += 1
     n <- use counter
-    source %= (addClass $ thenS horizon className1 className2 horizon1 horizon2 (showt n))
+    source %= addClass (thenS horizon className1 className2 horizon1 horizon2 (showt n))
     return ("Then_" `T.append` showt n, horizon)
   solidityAlg (Get c) = do
     (className, horizon) <- c
-    counter %= (+1)
+    counter += 1
     n <- use counter
-    source %= (addClass $ getS horizon className (showt n))
+    source %= addClass (getS horizon className (showt n))
     return ("Get_" `T.append` showt n, horizon)
   solidityAlg (Anytime c) = do
     (className, horizon) <- c
-    counter %= (+1)
+    counter += 1
     n <- use counter
-    source %= (addClass $ anytimeS horizon className (showt n))
+    source %= addClass (anytimeS horizon className (showt n))
     return ("Anytime_" `T.append` showt n, horizon)
 
 instance SolidityAlg ExtendedF where
-  solidityAlg = undefined
+  solidityAlg (Cond obs c1 c2) = do
+    (className1, horizon1) <- c1
+    (className2, horizon2) <- c2
+    let horizon = max horizon1 horizon2
+    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    counter += 1
+    n <- use counter
+    source %= addClass (condS horizon className1 className2 obsConstructor (showt n))
+    return ("Cond_" `T.append` showt n, horizon)
+  solidityAlg (When obs c) = do
+    (className, horizon) <- c
+    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    counter += 1
+    n <- use counter
+    source %= addClass (whenS horizon className obsConstructor (showt n))
+    return ("When_" `T.append` showt n, horizon)
+  solidityAlg (AnytimeO obs c) = do
+    (className, horizon) <- c
+    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    counter += 1
+    n <- use counter
+    source %= addClass (anytimeObsS horizon className obsConstructor (showt n))
+    return ("AnytimeO_" `T.append` showt n, horizon)
+  solidityAlg (Until obs c) = do
+    (className, horizon) <- c
+    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    counter += 1
+    n <- use counter
+    --source %= addClass (untilS ho) TODO
+    return ("Until_" `T.append` showt n, horizon)
 
 
 instance (SolidityAlg f, SolidityAlg g) => SolidityAlg (f :+ g) where
   solidityAlg (L x) = solidityAlg x
   solidityAlg (R y) = solidityAlg y
 
-makeClass :: Horizon -> T.Text -> T.Text -> T.Text
-makeClass horizon className proceed =
+makeClass :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
+makeClass horizon className proceed members constructor =
   [text|
   contract ${className} is BaseContract {
       WrapperContract public wrapper_;
+      ${members}
       function ${className}(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
           wrapper_ = wrapper;
+          ${constructor}
       }
 
       function proceed() public whenAlive {
@@ -178,7 +213,7 @@ makeClass horizon className proceed =
       Infinite -> ""
 
 zeroS :: Horizon -> T.Text -> T.Text
-zeroS horizon n = makeClass horizon [text|Zero_${n}|] "kill();"
+zeroS horizon n = makeClass horizon [text|Zero_${n}|] "kill();" "" ""
 
 oneS :: Horizon -> Currency -> T.Text -> T.Text
 oneS horizon k n = makeClass horizon
@@ -186,6 +221,8 @@ oneS horizon k n = makeClass horizon
   [text|
   marketplace_.receive(Marketplace.Commodity.${k'}, 1);
   kill();|]
+  ""
+  ""
   where
     currency :: Currency -> T.Text
     currency GBP = "GBP"
@@ -201,6 +238,8 @@ giveS horizon className n = makeClass horizon
   marketplace_.give(next);
   kill();
   |]
+  ""
+  ""
 
 andS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 andS horizon className1 className2 n = makeClass horizon
@@ -214,6 +253,8 @@ andS horizon className1 className2 n = makeClass horizon
   next2.proceed();
   kill();
   |]
+  ""
+  ""
 
 orS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
 orS horizon className1 className2 obs n = makeClass horizon
@@ -230,16 +271,20 @@ orS horizon className1 className2 obs n = makeClass horizon
   }
   kill();
   |]
+  ""
+  ""
 
 scaleS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-scaleS horizon className factor n = makeClass horizon
+scaleS horizon className obsConstructor n = makeClass horizon
   [text|Scale_${n}|]
   [text|
-  ${className} next = new ${className}(marketplace_, scale_ * ${factor}, wrapper_);
+  ${className} next = new ${className}(marketplace_, scale_ * obs_.getValue(), wrapper_);
   marketplace_.delegate(next);
   next.proceed();
   kill();
   |]
+  "IntObservable private obs_;"
+  [text|obs_ = ${obsConstructor}|]
 
 truncateS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 truncateS horizon className time n = makeClass horizon
@@ -252,6 +297,8 @@ truncateS horizon className time n = makeClass horizon
   }
   kill();
   |]
+  ""
+  ""
 
 thenS :: Horizon -> T.Text -> T.Text -> Horizon -> Horizon -> T.Text -> T.Text
 thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
@@ -268,6 +315,8 @@ thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
   }
   kill();
   |]
+  ""
+  ""
   where
     horizon1' = case horizon1 of
       Time t -> let t' = showt t in [text|now <= ${t'}|]
@@ -288,47 +337,38 @@ getS horizon className n = makeClass horizon
       kill();
   }
   |]
+  ""
+  ""
   where
     horizon' = case horizon of
       Time t -> let t' = showt t in [text|now == ${t'}|]
       Infinite -> "false"
 
 anytimeS :: Horizon -> T.Text -> T.Text -> T.Text
-anytimeS horizon className n =
+anytimeS horizon className n = makeClass horizon
+  [text|Anytime_${n}|]
   [text|
-  contract Anytime_${n} is BaseContract {
-      bool public ready_;
-      WrapperContract public wrapper_;
-      function Anytime_${n}(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
-          wrapper_ = wrapper;
-      }
-
-      function proceed() public whenAlive {
-          if (${horizonCheck}) {
-              kill();
-              return;
-          }
-          if (!ready_) {
-              ready_ = true;
-          } else if (msg.sender == marketplace_.contracts_[this].holder) {
-              ${className} next = new ${className}(marketplace_, scale_, wrapper_);
-              marketplace_.delegate(next);
-              next.proceed();
-              kill();
-          }
-      }
+  if (!ready_) {
+      ready_ = true;
+  } else if (msg.sender == marketplace_.contracts_[this].holder) {
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next);
+      next.proceed();
+      kill();
   }
   |]
+  "bool public ready_ = false;"
+  ""
   where
     horizonCheck = case horizon of
       Time t -> let t' = showt t in [text|now > ${t'}|]
       Infinite -> [text|false|]
 
 condS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-condS horizon className1 className2 obs n = makeClass horizon
+condS horizon className1 className2 obsConstructor n = makeClass horizon
   [text|Cond_${n}|]
   [text|
-  if (${obs}) {
+  if (obs_.getValue()) {
       ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
       marketplace_.delegate(next1);
       next1.proceed();
@@ -339,14 +379,54 @@ condS horizon className1 className2 obs n = makeClass horizon
   }
   kill();
   |]
+  "BoolObservable private obs_;"
+  [text|obs_ = ${obsConstructor}|]
 
-whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-whenS horizon className obs timestamp n = makeClass horizon
+whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+whenS horizon className obsConstructor n = makeClass horizon
   [text|When_${n}|]
   [text|
-  if (${timestamp} == now && ${obs}) {
-      ${className}
+  var (fulfilled, when) = obs_.getFirstSince(this.isTrue, acquiredTimestamp_);
+  if (fulfilled) {
+      if (when == now) {
+          ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+          marketplace_.delegate(next);
+          next.proceed();
+          kill();
+      } else if (when < now) {
+          kill();
+      }
   }
+  |]
+  [text|
+  BoolObservable private obs_;
+  uint acquiredTimestamp_;
+
+  function isTrue(bool input) external pure returns(bool) {
+      return input;
+  }
+  |]
+  [text|
+  obs_ = ${obsConstructor}
+  acquiredTimestamp_ = block.timestamp;
+  |]
+
+anytimeObsS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+anytimeObsS horizon className obsConstructor n = makeClass horizon
+  [text|AnytimeO_${n}|]
+  [text|
+  if (obs_.getValue()) {
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      marketplace_.delegate(next);
+      next.proceed();
+      kill();
+  }
+  |]
+  [text|
+  BoolObservable private obs_;
+  |]
+  [text|
+  obs_ = ${obsConstructor}
   |]
 
 wrapper :: [SType] -> T.Text -> T.Text
@@ -370,12 +450,12 @@ wrapper observableTypes rootClass =
   --TODO
     observableParameters :: T.Text
     observableParameters = T.concat $ IList.imap (\i t -> let i' = showt i in case t of
-                             SInt -> [text|, ObservableInt obs${i'}|]
-                             SBool -> [text|, ObservableBool obs${i'}|]) observableTypes
+                             SInt -> [text|, IntObservable obs${i'}|]
+                             SBool -> [text|, BoolObservable obs${i'}|]) observableTypes
     observableMembers :: T.Text
     observableMembers = T.unlines $ IList.imap (\i t -> let i' = showt i in case t of
-                             SInt -> [text|ObservableInt obs${i'}_;|]
-                             SBool -> [text|ObservableBool obs${i'}_;|]) observableTypes
+                             SInt -> [text|IntObservable obs${i'}_;|]
+                             SBool -> [text|BoolObservable obs${i'}_;|]) observableTypes
 
 
 compileContract :: Contract -> T.Text
