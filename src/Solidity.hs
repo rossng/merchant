@@ -28,48 +28,7 @@ initialSolidity = Solidity {
   _counter = 0,
   _runtimeObservables = [],
   _observableState = initialCompileState
-  }
-
-data SObservableAddress = PredefinedAddress String | RequiresAddress | Unaddressed
-data SObservable = SObservable SType SObservableAddress
-
-class SolidityObservable a where
-  toSolidityObservable :: Obs a -> SObservable
-  toSolidityLiteral :: Obs a -> T.Text
-  toSolidityTimestamp :: Obs a -> T.Text
-
-instance SolidityObservable Int where
-  toSolidityObservable (External addr) = SObservable SInt (PredefinedAddress addr)
-  toSolidityObservable (Constant n) = SObservable SInt Unaddressed
-  toSolidityLiteral (External addr) = [text|IntObservable(${addr'}).getValue()|]
-    where addr' = showt addr
-  toSolidityLiteral (Constant n) = showt n
-  toSolidityTimestamp (External addr) = [text|IntObservable(${addr'}).getTimestamp()|]
-    where addr' = showt addr
-  toSolidityTimestamp (Constant n) = "0"
-
-instance SolidityObservable Bool where
-  toSolidityObservable (External addr) = SObservable SBool (PredefinedAddress addr)
-  toSolidityObservable (Constant b) = SObservable SBool Unaddressed
-  toSolidityObservable (After t) = SObservable SBool Unaddressed
-  toSolidityObservable (OAnd b1 b2) = SObservable SBool Unaddressed
-  toSolidityLiteral (External addr) = [text|BoolObservable(${addr'}).getValue()|]
-    where addr' = showt addr
-  toSolidityLiteral (Constant True) = "true"
-  toSolidityLiteral (Constant False) = "false"
-  toSolidityLiteral (After t) = [text|(now > ${t'})|]
-    where t' = showt t
-  toSolidityLiteral (OAnd b1 b2) = [text|${b1'} && ${b2'}|]
-    where b1' = toSolidityLiteral b1
-          b2' = toSolidityLiteral b2
-  toSolidityTimestamp (External addr) = [text|BoolObservable(${addr'}).getTimestamp()|]
-    where addr' = showt addr
-  toSolidityTimestamp (Constant b) = "0"
-  toSolidityTimestamp (After t) = [text|((now <= ${t'}) ? 0 : ${t'})|]
-    where t' = showt t
-  toSolidityTimestamp (OAnd b1 b2) = [text|(${b1'} > ${b2'} ? ${b1'} : ${b2'})|]
-    where b1' = toSolidityTimestamp b1
-          b2' = toSolidityTimestamp b2
+}
 
 obsSolidityAlg :: Solidifiable a => Obs a -> State ObsCompileState T.Text
 obsSolidityAlg obs = compileSolidityObs graph (graph !! rootIdx)
