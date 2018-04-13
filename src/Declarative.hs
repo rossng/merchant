@@ -69,6 +69,18 @@ get' c = inject (Get c)
 anytime' :: Contract -> Contract
 anytime' c = inject (Anytime c)
 
+cond' :: Obs Bool -> Contract -> Contract -> Contract
+cond' o c1 c2 = inject (Cond o c1 c2)
+
+when' :: Obs Bool -> Contract -> Contract
+when' o c = inject (When o c)
+
+anytimeO' :: Obs Bool -> Contract -> Contract
+anytimeO' o c = inject (AnytimeO o c)
+
+until' :: Obs Bool -> Contract -> Contract
+until' o c = inject (Until o c)
+
 zcb :: Time -> Int -> Currency -> Contract
 zcb t x k = scaleK' x (get' (truncate' t (one' k)))
 

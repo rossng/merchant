@@ -23,7 +23,12 @@ data Solidity = Solidity {
 makeLenses ''Solidity
 
 initialSolidity :: Solidity
-initialSolidity = Solidity { _source = [], _counter = 0, _runtimeObservables = [] }
+initialSolidity = Solidity {
+  _source = [],
+  _counter = 0,
+  _runtimeObservables = [],
+  _observableState = initialCompileState
+  }
 
 data SObservableAddress = PredefinedAddress String | RequiresAddress | Unaddressed
 data SObservable = SObservable SType SObservableAddress
@@ -191,7 +196,7 @@ makeClass horizon className proceed members constructor =
   contract ${className} is BaseContract {
       WrapperContract public wrapper_;
       ${members}
-      function ${className}(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
+      constructor(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
           wrapper_ = wrapper;
           ${constructor}
       }
@@ -284,7 +289,7 @@ scaleS horizon className obsConstructor n = makeClass horizon
   kill();
   |]
   "IntObservable private obs_;"
-  [text|obs_ = ${obsConstructor}|]
+  [text|obs_ = ${obsConstructor};|]
 
 truncateS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 truncateS horizon className time n = makeClass horizon
@@ -380,7 +385,7 @@ condS horizon className1 className2 obsConstructor n = makeClass horizon
   kill();
   |]
   "BoolObservable private obs_;"
-  [text|obs_ = ${obsConstructor}|]
+  [text|obs_ = ${obsConstructor};|]
 
 whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 whenS horizon className obsConstructor n = makeClass horizon
@@ -407,7 +412,7 @@ whenS horizon className obsConstructor n = makeClass horizon
   }
   |]
   [text|
-  obs_ = ${obsConstructor}
+  obs_ = ${obsConstructor};
   acquiredTimestamp_ = block.timestamp;
   |]
 
@@ -426,7 +431,7 @@ anytimeObsS horizon className obsConstructor n = makeClass horizon
   BoolObservable private obs_;
   |]
   [text|
-  obs_ = ${obsConstructor}
+  obs_ = ${obsConstructor};
   |]
 
 wrapper :: [SType] -> T.Text -> T.Text
@@ -435,7 +440,7 @@ wrapper observableTypes rootClass =
   contract WrapperContract is BaseContract {
       ${observableMembers}
 
-      function WrapperContract(Marketplace marketplace, int scale${observableParameters}) public BaseContract(marketplace, scale) {
+      constructor(Marketplace marketplace, int scale${observableParameters}) public BaseContract(marketplace, scale) {
       }
 
       function proceed() public whenAlive {
@@ -460,7 +465,11 @@ wrapper observableTypes rootClass =
 
 compileContract :: Contract -> T.Text
 compileContract (Pure _) = ""
-compileContract c = T.concat $ (wrapper (solidity ^. runtimeObservables) rootClass) : (solidity ^. source)
+compileContract c = T.unlines $ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
   where
     compileState = handle (const $ return ("", Infinite)) solidityAlg c
     ((rootClass, horizon), solidity) = runState compileState initialSolidity
+    contractSources = solidity ^. source
+    wrapperSource = [wrapper (solidity ^. runtimeObservables) rootClass]
+    baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]
+    obsSources = solidity ^. observableState . obsSource

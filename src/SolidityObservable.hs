@@ -100,56 +100,56 @@ addClass cls sources = cls : sources
 
 compileSolidityObs :: ObsGraph -> SolidityObs -> State ObsCompileState T.Text
 compileSolidityObs obsGraph (OBExternal addr) = return [text|BoolObservable(${addr'})|]
-  where addr' = showt addr
+  where addr' = T.pack addr
 compileSolidityObs obsGraph (OBConstant value) = do
   obsCounter += 1
   n <- use obsCounter
   let (name, source) = constantBoolS value n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 compileSolidityObs obsGraph (OBAfter time) = do
   obsCounter += 1
   n <- use obsCounter
   let (name, source) = afterBoolS time n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 compileSolidityObs obsGraph (OBAnd o1 o2) = do
-  className1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  className2 <- compileSolidityObs obsGraph (obsGraph !! o2)
+  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
+  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
   obsCounter += 1
   n <- use obsCounter
-  let (name, source) = andBoolS className1 className2 n
+  let (name, source) = andBoolS constructor1 constructor2 n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 compileSolidityObs obsGraph (OBGreaterThan o1 o2) = do
-  className1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  className2 <- compileSolidityObs obsGraph (obsGraph !! o2)
+  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
+  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
   obsCounter += 1
   n <- use obsCounter
-  let (name, source) = greaterThanBoolS className1 className2 n
+  let (name, source) = greaterThanBoolS constructor1 constructor2 n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 compileSolidityObs obsGraph (OIExternal addr) = return [text|IntObservable(${addr'})|]
-  where addr' = showt addr
+  where addr' = T.pack addr
 compileSolidityObs obsGraph (OIConstant value) = do
   obsCounter += 1
   n <- use obsCounter
   let (name, source) = constantIntS value n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 compileSolidityObs obsGraph (OISubtract o1 o2) = do
-  className1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  className2 <- compileSolidityObs obsGraph (obsGraph !! o2)
+  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
+  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
   obsCounter += 1
   n <- use obsCounter
-  let (name, source) = subtractIntS className1 className2 n
+  let (name, source) = subtractIntS constructor1 constructor2 n
   obsSource %= addClass source
-  return ([text|new ${name}();|])
+  return ([text|new ${name}()|])
 
 constantBoolS :: Bool -> Int -> (T.Text, T.Text)
 constantBoolS value idx =
-  ([text|ConstantBoolObservable_${idx'}|],
-  [text|
+  ( [text|ConstantBoolObservable_${idx'}|]
+  , [text|
   contract ConstantBoolObservable_${idx'} is BoolObservable {
       BoolObservable.Value[] public valueHistory_;
 
@@ -178,10 +178,9 @@ constantBoolS value idx =
       }
   }
   |])
-  where value' = case value of
-          True -> "true"
-          False -> "false"
-        idx' = showt idx
+  where
+    value' = if value then "true" else "false"
+    idx' = showt idx
 
 afterBoolS :: Time -> Int -> (T.Text, T.Text)
 afterBoolS time idx =
@@ -238,13 +237,13 @@ afterBoolS time idx =
         idx' = showt idx
 
 andBoolS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
-andBoolS className1 className2 idx = binaryS "And" "&&" SBool SBool className1 className2 idx
+andBoolS = binaryS "And" "&&" SBool SBool
 
 greaterThanBoolS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
-greaterThanBoolS className1 className2 idx = binaryS "GreaterThan" ">" SInt SBool className1 className2 idx
+greaterThanBoolS = binaryS "GreaterThan" ">" SInt SBool
 
 binaryS :: T.Text -> T.Text -> SType -> SType -> T.Text -> T.Text -> Int -> (T.Text, T.Text)
-binaryS opName op inputType outputType className1 className2 idx =
+binaryS opName op inputType outputType constructor1 constructor2 idx =
   ([text|${opName}${outputType'}_${idx'}|],
   [text|
   contract ${opName}${outputType'}_${idx'} is ${outputType'} {
@@ -253,8 +252,8 @@ binaryS opName op inputType outputType className1 className2 idx =
       ${outputType'}.Value[] public valueHistory_;
 
       constructor() public {
-          b1_ = ${className1}
-          b2_ = ${className2}
+          b1_ = ${constructor1};
+          b2_ = ${constructor2};
       }
 
       function getValueHistory() public returns(${outputType'}.Value[]) {
@@ -375,7 +374,7 @@ constantIntS value idx =
 
 
 subtractIntS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
-subtractIntS className1 className2 idx = binaryS "Subtract" "-" SInt SInt className1 className2 idx
+subtractIntS = binaryS "Subtract" "-" SInt SInt
 
 baseObservableS :: T.Text -> T.Text -> T.Text
 baseObservableS name typeName =
