@@ -182,7 +182,7 @@ instance SolidityAlg ExtendedF where
     obsConstructor <- zoom observableState (obsSolidityAlg obs)
     counter += 1
     n <- use counter
-    --source %= addClass (untilS ho) TODO
+    source %= addClass (untilS horizon className obsConstructor (showt n))
     return ("Until_" `T.append` showt n, horizon)
 
 
@@ -195,13 +195,25 @@ makeClass horizon className proceed members constructor =
   [text|
   contract ${className} is BaseContract {
       WrapperContract public wrapper_;
+      bool public until_;
+      BoolObservable private untilObs_;
+      uint acquiredTimestamp_;
       ${members}
-      constructor(Marketplace marketplace, int scale, WrapperContract wrapper) public BaseContract(marketplace, scale) {
+      constructor(Marketplace marketplace, int scale, WrapperContract wrapper, bool until, BoolObservable untilObs) public BaseContract(marketplace, scale) {
           wrapper_ = wrapper;
+          until_ = until;
+          untilObs_ = untilObs;
+          acquiredTimestamp_ = block.timestamp;
           ${constructor}
       }
 
       function proceed() public whenAlive {
+          bool untilFulfilled;
+          (untilFulfilled,) = untilObs_.getFirstSince(marketplace_.isTrue, acquiredTimestamp_);
+          if (untilFulfilled) {
+              kill();
+              return;
+          }
           ${horizonCheck}
           ${proceed}
       }
@@ -239,7 +251,7 @@ giveS :: Horizon -> T.Text -> T.Text -> T.Text
 giveS horizon className n = makeClass horizon
   [text|Give_${n}|]
   [text|
-  ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+  ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
   marketplace_.give(next);
   kill();
   |]
@@ -250,8 +262,8 @@ andS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 andS horizon className1 className2 n = makeClass horizon
   [text|And_${n}|]
   [text|
-  ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
-  ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+  ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+  ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
   marketplace_.delegate(next1);
   marketplace_.delegate(next2);
   next1.proceed();
@@ -266,11 +278,11 @@ orS horizon className1 className2 obs n = makeClass horizon
   [text|Or_${n}|]
   [text|
   if (${obs}) {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
   } else {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
+      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
   }
@@ -283,7 +295,7 @@ scaleS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 scaleS horizon className obsConstructor n = makeClass horizon
   [text|Scale_${n}|]
   [text|
-  ${className} next = new ${className}(marketplace_, scale_ * obs_.getValue(), wrapper_);
+  ${className} next = new ${className}(marketplace_, scale_ * obs_.getValue(), wrapper_, false, BoolObservable(0));
   marketplace_.delegate(next);
   next.proceed();
   kill();
@@ -296,7 +308,7 @@ truncateS horizon className time n = makeClass horizon
   [text|Truncate_${n}|]
   [text|
   if (now <= ${time}) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
   }
@@ -310,11 +322,11 @@ thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
   [text|Then_${n}|]
   [text|
   if (${horizon1'}) {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
+      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
   } else if (${horizon2'}) {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
   }
@@ -336,7 +348,7 @@ getS horizon className n = makeClass horizon
   [text|Get_${n}|]
   [text|
   if (${horizon'}) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill();
@@ -356,7 +368,7 @@ anytimeS horizon className n = makeClass horizon
   if (!ready_) {
       ready_ = true;
   } else if (msg.sender == marketplace_.contracts_[this].holder) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill();
@@ -374,11 +386,11 @@ condS horizon className1 className2 obsConstructor n = makeClass horizon
   [text|Cond_${n}|]
   [text|
   if (obs_.getValue()) {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_);
+      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
   } else {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_);
+      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
   }
@@ -391,10 +403,12 @@ whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 whenS horizon className obsConstructor n = makeClass horizon
   [text|When_${n}|]
   [text|
-  var (fulfilled, when) = obs_.getFirstSince(this.isTrue, acquiredTimestamp_);
+  bool fulfilled;
+  uint when;
+  (fulfilled, when) = obs_.getFirstSince(this.isTrue, acquiredTimestamp_);
   if (fulfilled) {
       if (when == now) {
-          ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+          ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
           marketplace_.delegate(next);
           next.proceed();
           kill();
@@ -405,7 +419,6 @@ whenS horizon className obsConstructor n = makeClass horizon
   |]
   [text|
   BoolObservable private obs_;
-  uint acquiredTimestamp_;
 
   function isTrue(bool input) external pure returns(bool) {
       return input;
@@ -413,7 +426,6 @@ whenS horizon className obsConstructor n = makeClass horizon
   |]
   [text|
   obs_ = ${obsConstructor};
-  acquiredTimestamp_ = block.timestamp;
   |]
 
 anytimeObsS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
@@ -421,11 +433,27 @@ anytimeObsS horizon className obsConstructor n = makeClass horizon
   [text|AnytimeO_${n}|]
   [text|
   if (obs_.getValue()) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_);
+      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill();
   }
+  |]
+  [text|
+  BoolObservable private obs_;
+  |]
+  [text|
+  obs_ = ${obsConstructor};
+  |]
+
+untilS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
+untilS horizon className obsConstructor n = makeClass horizon
+  [text|Until_${n}|]
+  [text|
+  ${className} next = new ${className}(marketplace_, scale_, wrapper_, true, obs_);
+  marketplace_.delegate(next);
+  next.proceed();
+  kill();
   |]
   [text|
   BoolObservable private obs_;
@@ -444,7 +472,7 @@ wrapper observableTypes rootClass =
       }
 
       function proceed() public whenAlive {
-          ${rootClass} next = new ${rootClass}(marketplace_, 1, this);
+          ${rootClass} next = new ${rootClass}(marketplace_, 1, this, false, BoolObservable(0));
           marketplace_.delegate(next);
           next.proceed();
           kill();
