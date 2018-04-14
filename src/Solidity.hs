@@ -167,11 +167,13 @@ makeClass horizon className proceed members constructor =
       }
 
       function proceed() public whenAlive {
-          bool untilFulfilled;
-          (untilFulfilled,) = untilObs_.getFirstSince(marketplace_.isTrue, acquiredTimestamp_);
-          if (untilFulfilled) {
-              kill();
-              return;
+          if (until_) {
+              bool untilFulfilled;
+              (untilFulfilled,) = untilObs_.getFirstSince(marketplace_.isTrue, acquiredTimestamp_);
+              if (untilFulfilled) {
+                  kill();
+                  return;
+              }
           }
           ${horizonCheck}
           ${proceed}
@@ -195,7 +197,7 @@ oneS :: Horizon -> Currency -> T.Text -> T.Text
 oneS horizon k n = makeClass horizon
   [text|One_${n}|]
   [text|
-  marketplace_.receive(Marketplace.Commodity.${k'}, 1);
+  marketplace_.receive(Marketplace.Commodity.${k'}, scale_);
   kill();|]
   ""
   ""
@@ -427,7 +429,7 @@ wrapper observableTypes rootClass =
   contract WrapperContract is BaseContract {
       ${observableMembers}
 
-      constructor(Marketplace marketplace, int scale${observableParameters}) public BaseContract(marketplace, scale) {
+      constructor(Marketplace marketplace${observableParameters}) public BaseContract(marketplace, 1) {
       }
 
       function proceed() public whenAlive {
@@ -452,10 +454,15 @@ wrapper observableTypes rootClass =
 
 compileContract :: Contract -> T.Text
 compileContract (Pure _) = ""
-compileContract c = T.unlines $ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
+compileContract c = T.unlines $ declarations ++ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
   where
     compileState = handle (const $ return ("", Infinite)) solidityAlg c
     ((rootClass, horizon), solidity) = runState compileState initialSolidity
+    declarations = [[text|
+    pragma solidity ^0.4.21;
+    pragma experimental ABIEncoderV2;
+    import {BaseContract, Marketplace} from './Marketplace.sol';
+    |]]
     contractSources = solidity ^. source
     wrapperSource = [wrapper (solidity ^. runtimeObservables) rootClass]
     baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]
