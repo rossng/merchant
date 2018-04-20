@@ -116,6 +116,10 @@ instance GraphAlg ExtendedF where
     lift $ node n [A.textLabel (T.pack ("Until " ++ printObservable o))]
     lift $ n --> (n + 1)
 
+instance GraphAlg MonadicF where
+  graphAlg (GetInt c) = c 0
+  graphAlg (SetInt i c) = c
+
 instance (GraphAlg f, GraphAlg g) => GraphAlg (f :+ g) where
   graphAlg (L x) = graphAlg x
   graphAlg (R y) = graphAlg y

@@ -251,6 +251,10 @@ instance ValuationAlg ExtendedF where
   valuationAlg m k (AnytimeO o pr) = undefined
   valuationAlg m k (Until o pr) = undefined
 
+instance ValuationAlg MonadicF where
+  valuationAlg m k (GetInt c) = c 0
+  valuationAlg m k (SetInt i c) = c
+
 evalObs :: Time -> Obs a -> PR a
 evalObs _ (Constant k) = bigK k
 evalObs _ (External s) = error "External observable has unknown semantics"

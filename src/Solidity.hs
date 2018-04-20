@@ -145,6 +145,10 @@ instance SolidityAlg ExtendedF where
     return ("Until_" `T.append` showt n, horizon)
 
 
+instance SolidityAlg MonadicF where
+  solidityAlg (GetInt c) = c 0
+  solidityAlg (SetInt i c) = c
+
 instance (SolidityAlg f, SolidityAlg g) => SolidityAlg (f :+ g) where
   solidityAlg (L x) = solidityAlg x
   solidityAlg (R y) = solidityAlg y
