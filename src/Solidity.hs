@@ -30,10 +30,6 @@ initialSolidity = Solidity {
   _observableState = initialCompileState
 }
 
-obsSolidityAlg :: Solidifiable a => Obs a -> State ObsCompileState T.Text
-obsSolidityAlg obs = compileSolidityObs graph (graph !! rootIdx)
-  where (rootIdx, graph) = runState (obsToGraph obs) []
-
 class Functor f => SolidityAlg f where
   solidityAlg :: f (State Solidity (T.Text, Horizon)) -> State Solidity (T.Text, Horizon)
 
@@ -79,8 +75,8 @@ instance SolidityAlg ContractF where
     (className, horizon) <- c
     counter %= (+1)
     n <- use counter
-    obs <- zoom observableState (obsSolidityAlg obs)
-    source %= addClass (scaleS horizon className obs (showt n))
+    obsConstructor <- zoom observableState (compileObs obs)
+    source %= addClass (scaleS horizon className obsConstructor (showt n))
     return ("Scale_" `T.append` showt n, horizon)
 
 instance SolidityAlg OriginalF where
@@ -117,28 +113,28 @@ instance SolidityAlg ExtendedF where
     (className1, horizon1) <- c1
     (className2, horizon2) <- c2
     let horizon = max horizon1 horizon2
-    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    obsConstructor <- zoom observableState (compileObs obs)
     counter += 1
     n <- use counter
     source %= addClass (condS horizon className1 className2 obsConstructor (showt n))
     return ("Cond_" `T.append` showt n, horizon)
   solidityAlg (When obs c) = do
     (className, horizon) <- c
-    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    obsConstructor <- zoom observableState (compileObs obs)
     counter += 1
     n <- use counter
     source %= addClass (whenS horizon className obsConstructor (showt n))
     return ("When_" `T.append` showt n, horizon)
   solidityAlg (AnytimeO obs c) = do
     (className, horizon) <- c
-    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    obsConstructor <- zoom observableState (compileObs obs)
     counter += 1
     n <- use counter
     source %= addClass (anytimeObsS horizon className obsConstructor (showt n))
     return ("AnytimeO_" `T.append` showt n, horizon)
   solidityAlg (Until obs c) = do
     (className, horizon) <- c
-    obsConstructor <- zoom observableState (obsSolidityAlg obs)
+    obsConstructor <- zoom observableState (compileObs obs)
     counter += 1
     n <- use counter
     source %= addClass (untilS horizon className obsConstructor (showt n))

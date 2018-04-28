@@ -15,65 +15,6 @@ import ALaCarte
 import Observable
 
 data SType = SInt | SBool
-data SolidityObs = OBExternal String
-                 | OBConstant Bool
-                 | OBAfter Time
-                 | OBAnd Int Int
-                 | OBGreaterThan Int Int
-                 | OIExternal String
-                 | OIConstant Int
-                 | OISubtract Int Int
-                 deriving Show
-
-type ObsGraph = [SolidityObs]
-
-class Solidifiable a where
-  addToObsGraph :: Obs a -> State ObsGraph Int
-
-instance Solidifiable Bool where
-  addToObsGraph (External addr) = do
-    idx <- length <$> get
-    modify (++ [OBExternal addr])
-    return idx
-  addToObsGraph (Constant value) = do
-    idx <- length <$> get
-    modify (++ [OBConstant value])
-    return idx
-  addToObsGraph (After time) = do
-    idx <- length <$> get
-    modify (++ [OBAfter time])
-    return idx
-  addToObsGraph (OAnd o1 o2) = do
-    idx1 <- addToObsGraph o1
-    idx2 <- addToObsGraph o2
-    idx <- length <$> get
-    modify (++ [OBAnd idx1 idx2])
-    return idx
-  addToObsGraph (OGreaterThan o1 o2) = do
-    idx1 <- addToObsGraph o1
-    idx2 <- addToObsGraph o2
-    idx <- length <$> get
-    modify (++ [OBGreaterThan idx1 idx2])
-    return idx
-
-instance Solidifiable Int where
-  addToObsGraph (External addr) = do
-    idx <- length <$> get
-    modify (++ [OIExternal addr])
-    return idx
-  addToObsGraph (Constant value) = do
-    idx <- length <$> get
-    modify (++ [OIConstant value])
-    return idx
-  addToObsGraph (OSubtract o1 o2) = do
-    idx1 <- addToObsGraph o1
-    idx2 <- addToObsGraph o2
-    idx <- length <$> get
-    modify (++ [OISubtract idx1 idx2])
-    return idx
-
-obsToGraph :: Solidifiable a => Obs a -> State ObsGraph Int
-obsToGraph = addToObsGraph
 
 data ObsCompileState = ObsCompileState {
   _obsSource :: [T.Text],
@@ -87,64 +28,60 @@ initialCompileState = ObsCompileState {
   _obsCounter = 0
 }
 
-compileObs :: Solidifiable a => Obs a -> (T.Text, T.Text)
-compileObs obs = compileObsGraph graph rootIdx
-  where (rootIdx, graph) = runState (obsToGraph obs) []
+class Solidifiable a where
+  compileObs :: Obs a -> State ObsCompileState T.Text
 
-compileObsGraph :: ObsGraph -> Int -> (T.Text, T.Text)
-compileObsGraph obsGraph rootIdx = (T.unlines $ compileState ^. obsSource, className)
-  where state = compileSolidityObs obsGraph (obsGraph !! rootIdx)
-        (className, compileState) = runState state initialCompileState
+instance Solidifiable Bool where
+  compileObs (External addr) = return [text|BoolObservable(${addr'})|]
+    where addr' = T.pack addr
+  compileObs (Constant value) = do
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = constantBoolS value n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
+  compileObs (After time) = do
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = afterBoolS time n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
+  compileObs (OAnd o1 o2) = do
+   constructor1 <- compileObs o1
+   constructor2 <- compileObs o2
+   obsCounter += 1
+   n <- use obsCounter
+   let (name, source) = andBoolS constructor1 constructor2 n
+   obsSource %= addClass source
+   return ([text|new ${name}()|])
+  compileObs (OGreaterThan o1 o2) = do
+   constructor1 <- compileObs o1
+   constructor2 <- compileObs o2
+   obsCounter += 1
+   n <- use obsCounter
+   let (name, source) = andBoolS constructor1 constructor2 n
+   obsSource %= addClass source
+   return ([text|new ${name}()|])
+
+instance Solidifiable Int where
+  compileObs (External addr) = return [text|IntObservable(${addr'})|]
+    where addr' = T.pack addr
+  compileObs (Constant value) = do
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = constantIntS value n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
+  compileObs (OSubtract o1 o2) = do
+    constructor1 <- compileObs o1
+    constructor2 <- compileObs o2
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = subtractIntS constructor1 constructor2 n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
 
 addClass cls sources = cls : sources
-
-compileSolidityObs :: ObsGraph -> SolidityObs -> State ObsCompileState T.Text
-compileSolidityObs obsGraph (OBExternal addr) = return [text|BoolObservable(${addr'})|]
-  where addr' = T.pack addr
-compileSolidityObs obsGraph (OBConstant value) = do
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = constantBoolS value n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
-compileSolidityObs obsGraph (OBAfter time) = do
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = afterBoolS time n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
-compileSolidityObs obsGraph (OBAnd o1 o2) = do
-  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = andBoolS constructor1 constructor2 n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
-compileSolidityObs obsGraph (OBGreaterThan o1 o2) = do
-  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = greaterThanBoolS constructor1 constructor2 n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
-compileSolidityObs obsGraph (OIExternal addr) = return [text|IntObservable(${addr'})|]
-  where addr' = T.pack addr
-compileSolidityObs obsGraph (OIConstant value) = do
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = constantIntS value n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
-compileSolidityObs obsGraph (OISubtract o1 o2) = do
-  constructor1 <- compileSolidityObs obsGraph (obsGraph !! o1)
-  constructor2 <- compileSolidityObs obsGraph (obsGraph !! o2)
-  obsCounter += 1
-  n <- use obsCounter
-  let (name, source) = subtractIntS constructor1 constructor2 n
-  obsSource %= addClass source
-  return ([text|new ${name}()|])
 
 constantBoolS :: Bool -> Int -> (T.Text, T.Text)
 constantBoolS value idx =
