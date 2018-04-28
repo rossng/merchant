@@ -333,6 +333,7 @@ anytimeS horizon className n = makeClass horizon
   if (!ready_) {
       ready_ = true;
   } else if (msg.sender == marketplace_.contracts_[this].holder) {
+      require (msg.sender == getHolder());
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
@@ -368,6 +369,7 @@ whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 whenS horizon className obsConstructor n = makeClass horizon
   [text|When_${n}|]
   [text|
+  require (msg.sender == getHolder());
   bool fulfilled;
   uint when;
   (fulfilled, when) = obs_.getFirstSince(this.isTrue, acquiredTimestamp_);
@@ -397,6 +399,7 @@ anytimeObsS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 anytimeObsS horizon className obsConstructor n = makeClass horizon
   [text|AnytimeO_${n}|]
   [text|
+  require (msg.sender == getHolder());
   if (obs_.getValue()) {
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
@@ -415,6 +418,7 @@ untilS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 untilS horizon className obsConstructor n = makeClass horizon
   [text|Until_${n}|]
   [text|
+  require (msg.sender == getHolder());
   ${className} next = new ${className}(marketplace_, scale_, wrapper_, true, obs_);
   marketplace_.delegate(next);
   next.proceed();

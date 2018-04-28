@@ -16,15 +16,19 @@ baseContract =
       address public creator_;
       bool public alive_ = true;
 
-      function BaseContract(Marketplace marketplace, int scale) public {
+      constructor(Marketplace marketplace, int scale) public {
           marketplace_ = marketplace;
           scale_ = scale;
           creator_ = msg.sender;
       }
 
+      function getHolder() internal returns(address) {
+          return marketplace.contracts_[this].holder;
+      }
+
       function proceed() public;
 
-      function receive(Marketplace.Commodity commodity, uint quantity) internal whenAlive {
+      function receive(Marketplace.Commodity commodity, int quantity) internal whenAlive {
           marketplace_.receive(commodity, quantity);
       }
 

@@ -14,6 +14,40 @@ import Data.GraphViz.Commands
 import Control.Monad.State
 import qualified Data.Text.Lazy as T
 
+renderToNaiveGraphAlg :: Contract -> FilePath -> IO FilePath
+renderToNaiveGraphAlg c = runGraphviz (toNaiveGraphAlg c) Png
+
+toNaiveGraphAlg :: Contract -> G.DotGraph String
+toNaiveGraphAlg contract = digraph (Str "contract") (handle pure naiveGraphAlg contract)
+
+class Functor f => NaiveGraphAlg f where
+  naiveGraphAlg :: f (DotM String ()) -> DotM String ()
+
+instance NaiveGraphAlg ContractF where
+  naiveGraphAlg Zero = do
+    node "Zero" [A.textLabel "Zero"]
+  naiveGraphAlg (One k) = do
+    node "One" [A.textLabel (T.pack $ "One(" ++ show k ++ ")")]
+  naiveGraphAlg (Give c) = do
+    node "Give" [A.textLabel "Give"]
+    c
+  naiveGraphAlg (And c1 c2) = do
+    node "And" [A.textLabel "And"]
+    c1
+    c2
+  naiveGraphAlg (Scale o c) = do
+    node "Scale" [A.textLabel "Scale"]
+    c
+
+instance NaiveGraphAlg OriginalF where
+  naiveGraphAlg = undefined
+
+instance NaiveGraphAlg ExtendedF where
+  naiveGraphAlg = undefined
+
+instance (NaiveGraphAlg f, NaiveGraphAlg g) => NaiveGraphAlg (f :+ g) where
+  naiveGraphAlg (L x) = naiveGraphAlg x
+  naiveGraphAlg (R y) = naiveGraphAlg y
 
 renderToGraphAlg :: Contract -> FilePath -> IO FilePath
 renderToGraphAlg c = runGraphviz (toGraphAlg c) Png
