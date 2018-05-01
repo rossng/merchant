@@ -5,7 +5,7 @@ import Options.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import NeatInterpolation (text)
-import System.IO (openFile, IOMode(ReadMode), hGetContents)
+import System.IO (openFile, writeFile, IOMode(ReadMode), hGetContents)
 import Control.Lens
 
 import Control.Monad.IO.Class (liftIO)
@@ -65,13 +65,18 @@ compileHaskellContract contract = do
           let result' = unsafeCoerce result :: Contract
           return result'
 
+generateOutput :: Contract -> OutputType -> T.Text
+generateOutput contract Render = T.pack $ printContract contract
+generateOutput contract Solidity = Solidity.compileContract contract
+
 main :: IO ()
 main = do
   opts <- execParser optionParser
   haskellContract <- getContractFromInput (opts^.contractInput)
   compiledContract <- compileHaskellContract haskellContract
-  case (opts^.outputType) of
-    Render -> putStrLn (printContract compiledContract)
-    Solidity -> TIO.putStr (Solidity.compileContract compiledContract)
+  let outputText = generateOutput compiledContract (opts^.outputType)
+  case (opts^.output) of
+    FileOutput path -> writeFile path (T.unpack outputText)
+    StdOutput -> TIO.putStr outputText
 
 
