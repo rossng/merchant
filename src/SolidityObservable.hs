@@ -329,3 +329,58 @@ baseObservableS name typeName =
       function getFirstSince(function(${typeName}) external pure returns(bool) condition, uint sinceTimestamp) public returns(bool, uint);
   }
   |]
+
+userObservableS :: T.Text -> T.Text -> T.Text
+userObservableS name typeName =
+  [text|
+  contract User${name}Observable is ${name}Observable {
+      ${name}Observable.Value[] private valueHistory_;
+      address authority_;
+
+      event ValueUpdated(${typeName} newValue);
+
+      constructor(address authority, ${typeName} initialValue) public {
+          valueHistory_.push(Value(initialValue, 0));
+          authority_ = authority;
+      }
+
+      function getValueHistory() public returns (${name}Observable.Value[]) {
+          return valueHistory_;
+      }
+
+      function getValue() public view returns (${typeName}) {
+          return valueHistory_[valueHistory_.length - 1].value;
+      }
+
+      function getTimestamp() public view returns (uint) {
+          return valueHistory_[valueHistory_.length - 1].timestamp;
+      }
+
+      function setValue(${typeName} value) public {
+          valueHistory_.push(${name}Observable.Value(value, block.timestamp));
+          emit ValueUpdated(value);
+      }
+
+      function getFirstSince(function(${typeName}) external pure returns (bool) condition, uint sinceTimestamp) public returns (bool, uint) {
+          uint currentTimestamp = 0;
+          ${typeName} currentValue = valueHistory_[0].value;
+          for (uint i = 0; i < valueHistory_.length; i++) {
+              if (valueHistory_[i].timestamp < sinceTimestamp) {
+                  currentTimestamp = valueHistory_[i].timestamp;
+                  currentValue = valueHistory_[i].value;
+                  continue;
+              } else {
+                  if (condition(currentValue)) {
+                      return (true, sinceTimestamp);
+                  }
+                  currentTimestamp = valueHistory_[i].timestamp;
+                  currentValue = valueHistory_[i].value;
+                  if (condition(currentValue)) {
+                      return (true, currentTimestamp);
+                  }
+              }
+          }
+          return (false, 0);
+      }
+  }
+  |]

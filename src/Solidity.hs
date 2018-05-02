@@ -458,15 +458,10 @@ wrapper observableTypes rootClass =
 
 compileContract :: Contract -> T.Text
 compileContract (Pure _) = ""
-compileContract c = T.unlines $ declarations ++ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
+compileContract c = T.unlines $ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
   where
     compileState = handle (const $ return ("", Infinite)) solidityAlg c
     ((rootClass, horizon), solidity) = runState compileState initialSolidity
-    declarations = [[text|
-    pragma solidity ^0.4.21;
-    pragma experimental ABIEncoderV2;
-    import {BaseContract, Marketplace} from './Marketplace.sol';
-    |]]
     contractSources = solidity ^. source
     wrapperSource = [wrapper (solidity ^. runtimeObservables) rootClass]
     baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]

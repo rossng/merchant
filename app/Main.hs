@@ -5,20 +5,25 @@ import Options.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import NeatInterpolation (text)
-import System.IO (openFile, writeFile, IOMode(ReadMode), hGetContents)
+import System.IO (openFile, writeFile, IOMode(ReadMode), hGetContents, hPutStr, readFile)
+import System.IO.Temp (withSystemTempFile, withSystemTempDirectory, writeSystemTempFile, createTempDirectory, getCanonicalTemporaryDirectory)
 import Control.Lens
+import System.Process (callProcess, showCommandForUser)
+import System.FilePath ((</>), (-<.>), takeFileName, dropFileName)
 
 import Control.Monad.IO.Class (liftIO)
 import DynFlags
 import GHC
 import GHC.Paths (libdir)
-import System.Directory (getTemporaryDirectory, removePathForcibly)
+import System.Directory (getTemporaryDirectory, removePathForcibly, getDirectoryContents)
 import Unsafe.Coerce (unsafeCoerce)
 
 import CommandParser
 import Declarative
 import Render
 import qualified Solidity
+import qualified SolidityLibrary
+import qualified SolidityObservable
 
 -- many thanks to eugenk - https://stackoverflow.com/questions/47680575/haskell-ghc-8-dynamically-load-import-module
 
@@ -65,18 +70,69 @@ compileHaskellContract contract = do
           let result' = unsafeCoerce result :: Contract
           return result'
 
-generateOutput :: Contract -> OutputType -> T.Text
-generateOutput contract Render = T.pack $ printContract contract
-generateOutput contract Solidity = Solidity.compileContract contract
+generateOutput :: Contract -> OutputType -> IO T.Text
+generateOutput contract Render = return $ T.pack (printContract contract)
+generateOutput contract Solidity = return $ Solidity.compileContract contract
+generateOutput contract Package = do
+  let solidity = T.unlines $ [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
+  bin <- getSolcOutput solidity "WrapperContract.bin"
+  abi <- getSolcOutput solidity "WrapperContract.abi"
+  return $ createPackage "contract" ("0x" `T.append` bin) abi
+
+runSolc :: T.Text -> (FilePath -> IO a) -> IO a
+runSolc solidity callback = do
+    filePath <- writeSystemTempFile "solidity.sol" (T.unpack solidity)
+    withSystemTempDirectory "solcout" $ \folderPath -> do
+      callProcess "solc" ["--overwrite", "-o", folderPath, "--bin", "--abi", filePath]
+      callback folderPath
+
+getSolcOutput :: T.Text -> String -> IO T.Text
+getSolcOutput solidity fileName = do
+  runSolc solidity $ \folderPath -> do
+    T.pack <$> readFile (folderPath </> fileName)
+
+createPackage :: T.Text -> T.Text -> T.Text -> T.Text
+createPackage name bin abi = [text|
+{
+  "name": "${name}",
+  "bin": "${bin}",
+  "abi": ${abi}
+}
+|]
+
+staticContracts :: IO T.Text
+staticContracts = do
+  marketplaceBin <- getSolcOutput SolidityLibrary.library "Marketplace.bin"
+  marketplaceAbi <- getSolcOutput SolidityLibrary.library "Marketplace.abi"
+  baseContractAbi <- getSolcOutput SolidityLibrary.library "BaseContract.abi"
+  runSolc SolidityLibrary.observableLibrary $ \folderPath -> do
+    userBoolObservableBin <- T.pack <$> readFile (folderPath </> "UserBoolObservable.bin")
+    userBoolObservableAbi <- T.pack <$> readFile (folderPath </> "UserBoolObservable.abi")
+    userIntObservableBin <- T.pack <$> readFile (folderPath </> "UserIntObservable.bin")
+    userIntObservableAbi <- T.pack <$> readFile (folderPath </> "UserIntObservable.abi")
+    return [text|
+      export const MarketplaceBin: string = "0x${marketplaceBin}";
+      export const MarketplaceAbi = ${marketplaceAbi};
+      export const BaseContractAbi = ${baseContractAbi};
+      export const UserBoolObservableBin = "0x${userBoolObservableBin}";
+      export const UserBoolObservableAbi = ${userBoolObservableAbi};
+      export const UserIntObservableBin = "0x${userIntObservableBin}";
+      export const UserIntObservableAbi = ${userIntObservableAbi};
+    |]
 
 main :: IO ()
 main = do
   opts <- execParser optionParser
-  haskellContract <- getContractFromInput (opts^.contractInput)
-  compiledContract <- compileHaskellContract haskellContract
-  let outputText = generateOutput compiledContract (opts^.outputType)
-  case (opts^.output) of
-    FileOutput path -> writeFile path (T.unpack outputText)
-    StdOutput -> TIO.putStr outputText
+  case opts of
+    Compile compileOpts -> do
+      haskellContract <- getContractFromInput (compileOpts^.contractInput)
+      compiledContract <- compileHaskellContract haskellContract
+      outputText <- generateOutput compiledContract (compileOpts^.outputType)
+      case (compileOpts^.output) of
+        FileOutput path -> writeFile path (T.unpack outputText)
+        StdOutput -> TIO.putStr outputText
+    StaticContracts -> do
+      output <- staticContracts
+      TIO.putStr output
 
 

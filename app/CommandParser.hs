@@ -16,22 +16,35 @@ data Output
 data OutputType
   = Render
   | Solidity
+  | Package
 
-data Options = Options
+data CompileOptions = CompileOptions
   { _contractInput :: Input
   , _output :: Output
   , _outputType :: OutputType
   }
-makeLenses ''Options
+makeLenses ''CompileOptions
 
-optionParser :: ParserInfo Options
-optionParser = info (options <**> helper)
+data Command
+  = Compile CompileOptions
+  | StaticContracts
+
+optionParser :: ParserInfo Command
+optionParser = info (commandParser <**> helper)
   (  fullDesc
-  <> progDesc "Compile the source code of CONTRACT"
   <> header "merchant - compile financial contracts for Ethereum" )
 
-options :: Parser Options
-options = Options <$> inputParser <*> outputParser <*> outputTypeParser
+commandParser :: Parser Command
+commandParser = subparser
+  (  command "compile" (info compileOptions ( progDesc "Compile the source code of CONTRACT" ))
+  <> command "static" (info staticOptions ( progDesc "Output the static-contracts.ts file required by the Merchant Dapp" ))
+  )
+
+staticOptions :: Parser Command
+staticOptions = pure StaticContracts
+
+compileOptions :: Parser Command
+compileOptions = Compile <$> (CompileOptions <$> inputParser <*> outputParser <*> outputTypeParser)
 
 inputParser :: Parser Input
 inputParser = fileInput <|> stdInput
@@ -64,7 +77,7 @@ stdOutput = flag' StdOutput
   <> help "Output to stdout" )
 
 outputTypeParser :: Parser OutputType
-outputTypeParser = render <|> solidity
+outputTypeParser = render <|> solidity <|> package
 
 render :: Parser OutputType
 render = flag' Render
@@ -75,3 +88,8 @@ solidity :: Parser OutputType
 solidity = flag' Solidity
   (  long "solidity"
   <> help "Output the contract compiled to Solidity" )
+
+package :: Parser OutputType
+package = flag' Package
+  (  long "package"
+  <> help "Output the contract as an Ethereum package" )
