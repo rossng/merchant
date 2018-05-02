@@ -100,6 +100,8 @@ marketplaceContract = [text|
           require(msg.sender == contracts_[contractAddress].holder);
           require(!contracts_[contractAddress].signed);
           contracts_[contractAddress].signed = true;
+          BaseContract baseContract = BaseContract(contractAddress);
+          baseContract.proceed();
           emit Signed(contractAddress);
       }
 
