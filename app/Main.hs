@@ -120,6 +120,11 @@ staticContracts = do
       export const UserIntObservableAbi = ${userIntObservableAbi};
     |]
 
+writeOutput :: Output -> T.Text -> IO ()
+writeOutput o t = case o of
+  FileOutput path -> writeFile path (T.unpack t)
+  StdOutput -> TIO.putStr t
+
 main :: IO ()
 main = do
   opts <- execParser optionParser
@@ -128,11 +133,9 @@ main = do
       haskellContract <- getContractFromInput (compileOpts^.contractInput)
       compiledContract <- compileHaskellContract haskellContract
       outputText <- generateOutput compiledContract (compileOpts^.outputType)
-      case (compileOpts^.output) of
-        FileOutput path -> writeFile path (T.unpack outputText)
-        StdOutput -> TIO.putStr outputText
-    StaticContracts -> do
-      output <- staticContracts
-      TIO.putStr output
+      writeOutput (compileOpts^.output) outputText
+    StaticContracts output -> do
+      outputText <- staticContracts
+      writeOutput output outputText
 
 

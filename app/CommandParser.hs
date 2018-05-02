@@ -27,7 +27,7 @@ makeLenses ''CompileOptions
 
 data Command
   = Compile CompileOptions
-  | StaticContracts
+  | StaticContracts Output
 
 optionParser :: ParserInfo Command
 optionParser = info (commandParser <**> helper)
@@ -41,7 +41,7 @@ commandParser = subparser
   )
 
 staticOptions :: Parser Command
-staticOptions = pure StaticContracts
+staticOptions = StaticContracts <$> outputParser
 
 compileOptions :: Parser Command
 compileOptions = Compile <$> (CompileOptions <$> inputParser <*> outputParser <*> outputTypeParser)
