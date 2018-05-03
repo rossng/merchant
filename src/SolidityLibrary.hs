@@ -18,7 +18,9 @@ headers = [text|
 baseContract :: T.Text
 baseContract = [text|
   contract BaseContract {
-      event Killed();
+      enum KillReason {EXECUTED, UNTIL, HORIZON, FAILED}
+
+      event Killed(BaseContract.KillReason killReason);
 
       Marketplace public marketplace_;
       int public scale_;
@@ -56,9 +58,9 @@ baseContract = [text|
           marketplace_.receive(commodity, quantity);
       }
 
-      function kill() internal whenAlive {
+      function kill(BaseContract.KillReason killReason) internal whenAlive {
           alive_ = false;
-          emit Killed();
+          emit Killed(killReason);
       }
 
       modifier whenAlive {

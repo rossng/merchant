@@ -149,6 +149,9 @@ instance (SolidityAlg f, SolidityAlg g) => SolidityAlg (f :+ g) where
   solidityAlg (L x) = solidityAlg x
   solidityAlg (R y) = solidityAlg y
 
+timeDelta :: T.Text
+timeDelta = "30"
+
 makeClass :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
 makeClass horizon className proceed members constructor =
   [text|
@@ -171,7 +174,7 @@ makeClass horizon className proceed members constructor =
               bool untilFulfilled;
               (untilFulfilled,) = untilObs_.getFirstSince(marketplace_.isTrue, acquiredTimestamp_);
               if (untilFulfilled) {
-                  kill();
+                  kill(BaseContract.KillReason.UNTIL);
                   return;
               }
           }
@@ -184,21 +187,21 @@ makeClass horizon className proceed members constructor =
     horizonCheck = case horizon of
       Time t -> let t' = showt t in [text|
         if(now > ${t'}) {
-            kill();
+            kill(BaseContract.KillReason.HORIZON);
             return;
         }
       |]
       Infinite -> ""
 
 zeroS :: Horizon -> T.Text -> T.Text
-zeroS horizon n = makeClass horizon [text|Zero_${n}|] "kill();" "" ""
+zeroS horizon n = makeClass horizon [text|Zero_${n}|] "kill(BaseContract.KillReason.EXECUTED);" "" ""
 
 oneS :: Horizon -> Currency -> T.Text -> T.Text
 oneS horizon k n = makeClass horizon
   [text|One_${n}|]
   [text|
   marketplace_.receive(Marketplace.Commodity.${k'}, scale_);
-  kill();|]
+  kill(BaseContract.KillReason.EXECUTED);|]
   ""
   ""
   where
@@ -214,7 +217,7 @@ giveS horizon className n = makeClass horizon
   [text|
   ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
   marketplace_.give(next);
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   ""
   ""
@@ -229,7 +232,7 @@ andS horizon className1 className2 n = makeClass horizon
   marketplace_.delegate(next2);
   next1.proceed();
   next2.proceed();
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   ""
   ""
@@ -247,7 +250,7 @@ orS horizon className1 className2 obs n = makeClass horizon
       marketplace_.delegate(next1);
       next1.proceed();
   }
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   ""
   ""
@@ -259,7 +262,7 @@ scaleS horizon className obsConstructor n = makeClass horizon
   ${className} next = new ${className}(marketplace_, scale_ * obs_.getValue(), wrapper_, false, BoolObservable(0));
   marketplace_.delegate(next);
   next.proceed();
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   "IntObservable private obs_;"
   [text|obs_ = ${obsConstructor};|]
@@ -272,8 +275,10 @@ truncateS horizon className time n = makeClass horizon
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
+      kill(BaseContract.KillReason.EXECUTED);
+  } else {
+      kill(BaseContract.KillReason.HORIZON);
   }
-  kill();
   |]
   ""
   ""
@@ -286,12 +291,15 @@ thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
       ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
+      kill(BaseContract.KillReason.EXECUTED);
   } else if (${horizon2'}) {
       ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
+      kill(BaseContract.KillReason.EXECUTED);
+  } else {
+      kill(BaseContract.KillReason.FAILED);
   }
-  kill();
   |]
   ""
   ""
@@ -308,18 +316,23 @@ getS :: Horizon -> T.Text -> T.Text -> T.Text
 getS horizon className n = makeClass horizon
   [text|Get_${n}|]
   [text|
-  if (${horizon'}) {
+  if (${atHorizon}) {
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
-      kill();
+      kill(BaseContract.KillReason.EXECUTED);
+  } else if (${afterHorizon}) {
+      kill(BaseContract.KillReason.FAILED);
   }
   |]
   ""
   ""
   where
-    horizon' = case horizon of
-      Time t -> let t' = showt t in [text|now == ${t'}|]
+    atHorizon = case horizon of
+      Time t -> let t' = showt t in [text|${t'} <= now && now <= (${t'} + ${timeDelta})|]
+      Infinite -> "false"
+    afterHorizon = case horizon of
+      Time t -> let t' = showt t in [text|now > (${t'} + ${timeDelta})|]
       Infinite -> "false"
 
 -- TODO: fix this
@@ -328,25 +341,25 @@ anytimeS horizon className n = makeClass horizon
   [text|Anytime_${n}|]
   [text|
   if (${afterHorizon}) {
-      kill();
+      kill(BaseContract.KillReason.FAILED);
   } else if ((${beforeOrAtHorizon} && msg.sender == getHolder()) || (${atHorizon} && msg.sender == getCounterparty())) {
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
-      kill();
+      kill(BaseContract.KillReason.EXECUTED);
   }
   |]
   ""
   ""
   where
     afterHorizon = case horizon of
-      Time t -> let t' = showt t in [text|now > ${t'}|]
+      Time t -> let t' = showt t in [text|now > (${t'} + ${timeDelta})|]
       Infinite -> [text|false|]
     beforeOrAtHorizon = case horizon of
-      Time t -> let t' = showt t in [text|now <= ${t'}|]
+      Time t -> let t' = showt t in [text|now <= (${t'} + ${timeDelta})|]
       Infinite -> [text|true|]
     atHorizon = case horizon of
-      Time t -> let t' = showt t in [text|now == ${t'}|]
+      Time t -> let t' = showt t in [text|(now >= ${t'} && now <= (${t'} + ${timeDelta}))|]
       Infinite -> [text|false|]
 
 condS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
@@ -362,7 +375,7 @@ condS horizon className1 className2 obsConstructor n = makeClass horizon
       marketplace_.delegate(next2);
       next2.proceed();
   }
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   "BoolObservable private obs_;"
   [text|obs_ = ${obsConstructor};|]
@@ -375,15 +388,15 @@ whenS horizon className obsConstructor n = makeClass horizon
   uint when;
   (fulfilled, when) = obs_.getFirstSince(this.isTrue, acquiredTimestamp_);
   if (fulfilled) {
-      if (when == now) {
+      if (when <= now && now <= (when + ${timeDelta})) {
           if (msg.sender == getHolder() || msg.sender == getCounterparty() || msg.sender == getCreator()) {
               ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
               marketplace_.delegate(next);
               next.proceed();
-              kill();
+              kill(BaseContract.KillReason.EXECUTED);
           }
-      } else if (when < now) {
-          kill();
+      } else if ((when + ${timeDelta}) < now) {
+          kill(BaseContract.KillReason.FAILED);
       }
   }
   |]
@@ -398,7 +411,6 @@ whenS horizon className obsConstructor n = makeClass horizon
   obs_ = ${obsConstructor};
   |]
 
--- TODO: fix this
 anytimeObsS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 anytimeObsS horizon className obsConstructor n = makeClass horizon
   [text|AnytimeO_${n}|]
@@ -407,7 +419,7 @@ anytimeObsS horizon className obsConstructor n = makeClass horizon
       ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
-      kill();
+      kill(BaseContract.KillReason.EXECUTED);
   }
   |]
   [text|
@@ -425,7 +437,7 @@ untilS horizon className obsConstructor n = makeClass horizon
   ${className} next = new ${className}(marketplace_, scale_, wrapper_, true, obs_);
   marketplace_.delegate(next);
   next.proceed();
-  kill();
+  kill(BaseContract.KillReason.EXECUTED);
   |]
   [text|
   BoolObservable private obs_;
@@ -447,12 +459,11 @@ wrapper observableTypes rootClass =
           ${rootClass} next = new ${rootClass}(marketplace_, 1, this, false, BoolObservable(0));
           marketplace_.delegate(next);
           next.proceed();
-          kill();
+          kill(BaseContract.KillReason.EXECUTED);
       }
   }
   |]
   where
-  --TODO
     observableParameters :: T.Text
     observableParameters = T.concat $ IList.imap (\i t -> let i' = showt i in case t of
                              SInt -> [text|, IntObservable obs${i'}|]
