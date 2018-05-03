@@ -34,8 +34,20 @@ baseContract = [text|
 
       function getHolder() internal view returns(address) {
           address holder;
-          (,holder,) = marketplace_.contracts_(this);
+          (,holder,,) = marketplace_.contracts_(this);
           return holder;
+      }
+
+      function getCounterparty() internal view returns(address) {
+          address counterparty;
+          (counterparty,,,) = marketplace_.contracts_(this);
+          return counterparty;
+      }
+
+      function getCreator() internal view returns(address) {
+          address creator;
+          (,,creator,) = marketplace_.contracts_(this);
+          return creator;
       }
 
       function proceed() public;
@@ -64,6 +76,7 @@ marketplaceContract = [text|
       struct ContractMetadata {
           address counterparty;
           address holder;
+          address creator;
           bool signed;
       }
 
@@ -92,7 +105,7 @@ marketplaceContract = [text|
           // is being requested by creator of contract
           require(!contracts_[contractAddress].signed);
           // has not already been signed
-          contracts_[contractAddress] = ContractMetadata(msg.sender, to, false);
+          contracts_[contractAddress] = ContractMetadata(msg.sender, to, msg.sender, false);
           emit Proposed(contractAddress, to);
       }
 
@@ -117,6 +130,7 @@ marketplaceContract = [text|
           contracts_[newContract] = ContractMetadata(
               contracts_[msg.sender].counterparty,
               contracts_[msg.sender].holder,
+              msg.sender,
               true
           );
           emit Delegated(msg.sender, newContract);
@@ -127,6 +141,7 @@ marketplaceContract = [text|
           contracts_[newContract] = ContractMetadata(
               contracts_[msg.sender].holder,
               contracts_[msg.sender].counterparty,
+              msg.sender,
               true
           );
           emit Delegated(msg.sender, newContract);

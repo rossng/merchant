@@ -34,6 +34,7 @@ makeContractModule :: T.Text -> String
 makeContractModule contract = T.unpack [text|
   module TheContract where
   import Declarative
+  import Observable
   contract :: Contract
   contract = ${contract}
 |]
@@ -72,9 +73,9 @@ compileHaskellContract contract = do
 
 generateOutput :: Contract -> OutputType -> IO T.Text
 generateOutput contract Render = return $ T.pack (printContract contract)
-generateOutput contract Solidity = return $ Solidity.compileContract contract
+generateOutput contract Solidity = return $ T.unlines [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
 generateOutput contract Package = do
-  let solidity = T.unlines $ [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
+  let solidity = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
   bin <- getSolcOutput solidity "WrapperContract.bin"
   abi <- getSolcOutput solidity "WrapperContract.abi"
   return $ createPackage "contract" ("0x" `T.append` bin) abi
@@ -83,7 +84,7 @@ runSolc :: T.Text -> (FilePath -> IO a) -> IO a
 runSolc solidity callback = do
     filePath <- writeSystemTempFile "solidity.sol" (T.unpack solidity)
     withSystemTempDirectory "solcout" $ \folderPath -> do
-      callProcess "solc" ["--overwrite", "-o", folderPath, "--bin", "--abi", filePath]
+      callProcess "solc" ["--overwrite", "-o", folderPath, "--optimize", "--bin", "--abi", filePath]
       callback folderPath
 
 getSolcOutput :: T.Text -> String -> IO T.Text
