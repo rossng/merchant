@@ -18,6 +18,10 @@ data OutputType
   | Solidity
   | Package
 
+data StaticOutputType
+  = StaticSolidity
+  | StaticTypeScript
+
 data CompileOptions = CompileOptions
   { _contractInput :: Input
   , _output :: Output
@@ -25,9 +29,15 @@ data CompileOptions = CompileOptions
   }
 makeLenses ''CompileOptions
 
+data StaticOptions = StaticOptions
+  { _staticOutput :: Output
+  , _staticOutputType :: StaticOutputType
+  }
+makeLenses ''StaticOptions
+
 data Command
   = Compile CompileOptions
-  | StaticContracts Output
+  | StaticContracts StaticOptions
 
 optionParser :: ParserInfo Command
 optionParser = info (commandParser <**> helper)
@@ -41,7 +51,20 @@ commandParser = subparser
   )
 
 staticOptions :: Parser Command
-staticOptions = StaticContracts <$> outputParser
+staticOptions = StaticContracts <$> (StaticOptions <$> outputParser <*> staticOutputTypeParser)
+
+staticOutputTypeParser :: Parser StaticOutputType
+staticOutputTypeParser = staticSolidity <|> staticTypescript
+
+staticSolidity :: Parser StaticOutputType
+staticSolidity = flag' StaticSolidity
+  (  long "solidity"
+  <> help "Output the static contracts as Solidity" )
+
+staticTypescript :: Parser StaticOutputType
+staticTypescript = flag' StaticTypeScript
+  (  long "typescript"
+  <> help "Output the compiled static contracts as Typescript" )
 
 compileOptions :: Parser Command
 compileOptions = Compile <$> (CompileOptions <$> inputParser <*> outputParser <*> outputTypeParser)

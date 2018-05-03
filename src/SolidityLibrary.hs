@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import SolidityObservable
 
 library :: T.Text
-library = baseContract `T.append` marketplaceContract
+library = T.unlines [baseContract, marketplaceContract]
 
 headers :: T.Text
 headers = [text|
@@ -171,7 +171,14 @@ marketplaceContract = [text|
 |]
 
 observableLibrary :: T.Text
-observableLibrary = T.unlines [headers, boolObservable, intObservable, userBoolObservable, userIntObservable]
+observableLibrary = T.unlines [boolObservable, intObservable, userBoolObservable, userIntObservable]
+  where boolObservable = baseObservableS "Bool" "bool"
+        intObservable = baseObservableS "Int" "int"
+        userBoolObservable = userObservableS "Bool" "bool"
+        userIntObservable = userObservableS "Int" "int"
+
+fullLibrary :: T.Text
+fullLibrary = T.unlines [headers, baseContract, marketplaceContract, boolObservable, intObservable, userBoolObservable, userIntObservable]
   where boolObservable = baseObservableS "Bool" "bool"
         intObservable = baseObservableS "Int" "int"
         userBoolObservable = userObservableS "Bool" "bool"

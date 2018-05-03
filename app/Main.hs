@@ -78,7 +78,7 @@ generateOutput contract Package = do
   let solidity = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
   bin <- getSolcOutput solidity "WrapperContract.bin"
   abi <- getSolcOutput solidity "WrapperContract.abi"
-  return $ createPackage "contract" ("0x" `T.append` bin) abi
+  return $ createPackage (T.pack $ printContract contract) ("0x" `T.append` bin) abi
 
 runSolc :: T.Text -> (FilePath -> IO a) -> IO a
 runSolc solidity callback = do
@@ -88,9 +88,7 @@ runSolc solidity callback = do
       callback folderPath
 
 getSolcOutput :: T.Text -> String -> IO T.Text
-getSolcOutput solidity fileName = do
-  runSolc solidity $ \folderPath -> do
-    T.pack <$> readFile (folderPath </> fileName)
+getSolcOutput solidity fileName = runSolc solidity $ \folderPath -> T.pack <$> readFile (folderPath </> fileName)
 
 createPackage :: T.Text -> T.Text -> T.Text -> T.Text
 createPackage name bin abi = [text|
@@ -102,16 +100,17 @@ createPackage name bin abi = [text|
 |]
 
 staticContracts :: IO T.Text
-staticContracts = do
-  marketplaceBin <- getSolcOutput SolidityLibrary.library "Marketplace.bin"
-  marketplaceAbi <- getSolcOutput SolidityLibrary.library "Marketplace.abi"
-  baseContractAbi <- getSolcOutput SolidityLibrary.library "BaseContract.abi"
-  runSolc SolidityLibrary.observableLibrary $ \folderPath -> do
+staticContracts =
+  runSolc SolidityLibrary.fullLibrary $ \folderPath -> do
+    marketplaceBin <- T.pack <$> readFile (folderPath </> "Marketplace.bin")
+    marketplaceAbi <- T.pack <$> readFile (folderPath </> "Marketplace.abi")
+    baseContractAbi <- T.pack <$> readFile (folderPath </> "BaseContract.abi")
     userBoolObservableBin <- T.pack <$> readFile (folderPath </> "UserBoolObservable.bin")
     userBoolObservableAbi <- T.pack <$> readFile (folderPath </> "UserBoolObservable.abi")
     userIntObservableBin <- T.pack <$> readFile (folderPath </> "UserIntObservable.bin")
     userIntObservableAbi <- T.pack <$> readFile (folderPath </> "UserIntObservable.abi")
-    return [text|
+    return
+      [text|
       export const MarketplaceBin: string = "0x${marketplaceBin}";
       export const MarketplaceAbi = ${marketplaceAbi};
       export const BaseContractAbi = ${baseContractAbi};
@@ -119,7 +118,7 @@ staticContracts = do
       export const UserBoolObservableAbi = ${userBoolObservableAbi};
       export const UserIntObservableBin = "0x${userIntObservableBin}";
       export const UserIntObservableAbi = ${userIntObservableAbi};
-    |]
+      |]
 
 writeOutput :: Output -> T.Text -> IO ()
 writeOutput o t = case o of
@@ -135,8 +134,10 @@ main = do
       compiledContract <- compileHaskellContract haskellContract
       outputText <- generateOutput compiledContract (compileOpts^.outputType)
       writeOutput (compileOpts^.output) outputText
-    StaticContracts output -> do
-      outputText <- staticContracts
-      writeOutput output outputText
+    StaticContracts staticOpts -> do
+      outputText <- case staticOpts ^. staticOutputType of
+        StaticSolidity -> return SolidityLibrary.fullLibrary
+        StaticTypeScript -> staticContracts
+      writeOutput (staticOpts^.staticOutput) outputText
 
 

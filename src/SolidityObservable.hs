@@ -106,9 +106,9 @@ constantBoolS value idx =
           return valueHistory_[0].timestamp;
       }
 
-      function getFirstSince(function(bool) external pure returns(bool) condition, uint) public returns(bool, uint) {
+      function getFirstSince(function(bool) external pure returns(bool) condition, uint sinceTimestamp) public returns(bool, uint) {
           if (condition(valueHistory_[0].value)) {
-              return (true, 0);
+              return (true, sinceTimestamp);
           } else {
               return (false, 0);
           }
@@ -297,9 +297,9 @@ constantIntS value idx =
           return valueHistory_[0].timestamp;
       }
 
-      function getFirstSince(function(int) external pure returns(bool) condition, uint) public returns(bool, uint) {
+      function getFirstSince(function(int) external pure returns(bool) condition, uint sinceTimestamp) public returns(bool, uint) {
           if (condition(valueHistory_[0].value)) {
-              return (true, 0);
+              return (true, sinceTimestamp);
           } else {
               return (false, 0);
           }
@@ -364,22 +364,34 @@ userObservableS name typeName =
       function getFirstSince(function(${typeName}) external pure returns (bool) condition, uint sinceTimestamp) public returns (bool, uint) {
           uint currentTimestamp = 0;
           ${typeName} currentValue = valueHistory_[0].value;
+          bool meetsCondition = condition(currentValue);
+
           for (uint i = 0; i < valueHistory_.length; i++) {
-              if (valueHistory_[i].timestamp < sinceTimestamp) {
-                  currentTimestamp = valueHistory_[i].timestamp;
-                  currentValue = valueHistory_[i].value;
-                  continue;
-              } else {
-                  if (condition(currentValue)) {
-                      return (true, sinceTimestamp);
-                  }
-                  currentTimestamp = valueHistory_[i].timestamp;
-                  currentValue = valueHistory_[i].value;
-                  if (condition(currentValue)) {
-                      return (true, currentTimestamp);
-                  }
+              currentTimestamp = valueHistory_[i].timestamp;
+
+              // if already met condition and next timestamp is beyond start of window
+              if (currentTimestamp >= sinceTimestamp && meetsCondition) {
+                  return (true, sinceTimestamp);
+              }
+
+              // if new timestamp is beyond now but did not already meet condition
+              if (currentTimestamp > now) {
+                  return (false, 0);
+              }
+
+              currentValue = valueHistory_[i].value;
+              meetsCondition = condition(currentValue);
+
+              // if new value meets condition and new timestamp is beyond start of window
+              if (currentTimestamp >= sinceTimestamp && meetsCondition) {
+                  return (true, currentTimestamp);
               }
           }
+
+          if (now >= sinceTimestamp && meetsCondition) {
+              return (true, sinceTimestamp);
+          }
+
           return (false, 0);
       }
   }
