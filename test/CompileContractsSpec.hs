@@ -51,6 +51,12 @@ contracts =
       opt = anytime' (perhaps 2000 u')
       u' = one' USD
     in get' (truncate' 1000 opt) `then'` opt
+  -- zcb
+  , when' (At 1000) (scale' (Constant 5) (one' USD))
+  -- european
+  , when' (At 1000) ((one' GBP) `or'` zero')
+  -- american
+  , anytimeO' (OAnd (Before 2000) (After 1000)) (one' USD)
   ]
 
 spec :: Spec

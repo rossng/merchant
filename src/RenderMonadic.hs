@@ -5,11 +5,11 @@ import Control.Monad.Free
 import Control.Monad.State
 
 import Declarative
-import Observable
 import ALaCarte
+import Render (printObservable)
 
 class Functor f => RenderM f where
-  renderMAlg :: f (State Int String) -> (State Int String)
+  renderMAlg :: f (State Int String) -> State Int String
 
 instance RenderM ContractF where
   renderMAlg Zero = return "Zero"
@@ -74,11 +74,3 @@ instance (RenderM f, RenderM g) => RenderM (f :+ g) where
 printContractM :: ContractM -> String
 printContractM (Pure _) = ""
 printContractM c = evalState (handle (const (return "")) renderMAlg c) 0
-
-printObservable :: Show a => Obs a -> String
-printObservable (External addr) = "[External " ++ addr ++ "]"
-printObservable (Constant c) = "[Constant " ++ show c ++ "]"
-printObservable (After t) = "[After " ++ show t ++ "]"
-printObservable (OAnd o1 o2) = "[" ++ printObservable o1 ++ " && " ++ printObservable o2 ++ "]"
-printObservable (OGreaterThan o1 o2) = "[" ++ printObservable o1 ++ " > " ++ printObservable o2 ++ "]"
-printObservable (OSubtract o1 o2) = "[" ++ printObservable o1 ++ " - " ++ printObservable o2 ++ "]"

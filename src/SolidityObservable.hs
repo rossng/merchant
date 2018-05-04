@@ -42,6 +42,12 @@ instance Solidifiable Bool where
     let (name, source) = afterBoolS time n
     obsSource %= addClass source
     return ([text|new ${name}()|])
+  compileObs (Before time) = do
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = beforeBoolS time n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
   compileObs (OAnd o1 o2) = do
    constructor1 <- compileObs o1
    constructor2 <- compileObs o2
@@ -58,6 +64,12 @@ instance Solidifiable Bool where
    let (name, source) = andBoolS constructor1 constructor2 n
    obsSource %= addClass source
    return ([text|new ${name}()|])
+  compileObs (At time) = do
+    obsCounter += 1
+    n <- use obsCounter
+    let (name, source) = atBoolS time n
+    obsSource %= addClass source
+    return ([text|new ${name}()|])
 
 instance Solidifiable Int where
   compileObs (External addr) = return [text|IntObservable(${addr'})|]
@@ -143,6 +155,113 @@ afterBoolS time idx =
 
       function getTimestamp() public view returns(uint) {
           return block.timestamp < ${time'} ? 0 : ${time'};
+      }
+
+      function getFirstSince(function(bool) external pure returns(bool) condition, uint since) public returns(bool, uint) {
+          if (now >= since) {
+              if (since < ${time'}) {
+                  if (condition(false)) {
+                      return (true, since);
+                  } else if (now >= ${time'} && condition(true)) {
+                      return (true, ${time'});
+                  } else {
+                      return (false, 0);
+                  }
+              } else {
+                  if (condition(true)) {
+                      return (true, since);
+                  } else {
+                      return (false, 0);
+                  }
+              }
+          }
+          return (false, 0);
+      }
+  }
+  |])
+  where time' = showt time
+        idx' = showt idx
+
+beforeBoolS :: Time -> Int -> (T.Text, T.Text)
+beforeBoolS time idx =
+  ([text|BeforeBoolObservable_${idx'}|],
+  [text|
+  contract BeforeBoolObservable_${idx'} is BoolObservable {
+      BoolObservable.Value[] valueHistory_;
+
+      constructor() public {
+      }
+
+      function getValueHistory() public returns(BoolObservable.Value[]) {
+          valueHistory_.length = 0;
+          valueHistory_.push(BoolObservable.Value(true, 0));
+          if (block.timestamp >= ${time'}) {
+              valueHistory_.push(BoolObservable.Value(false, ${time'}));
+          }
+          return valueHistory_;
+      }
+
+      function getValue() public view returns(bool) {
+          return block.timestamp < ${time'} ? true : false;
+      }
+
+      function getTimestamp() public view returns(uint) {
+          return block.timestamp < ${time'} ? 0 : ${time'};
+      }
+
+      function getFirstSince(function(bool) external pure returns(bool) condition, uint since) public returns(bool, uint) {
+          if (now >= since) {
+              if (since < ${time'}) {
+                  if (condition(true)) {
+                      return (true, since);
+                  } else if (now >= ${time'} && condition(false)) {
+                      return (true, ${time'});
+                  } else {
+                      return (false, 0);
+                  }
+              } else {
+                  if (condition(false)) {
+                      return (true, since);
+                  } else {
+                      return (false, 0);
+                  }
+              }
+          }
+          return (false, 0);
+      }
+  }
+  |])
+  where time' = showt time
+        idx' = showt idx
+
+atBoolS :: Time -> Int -> (T.Text, T.Text)
+atBoolS time idx =
+  ([text|AtBoolObservable_${idx'}|],
+  [text|
+  contract AtBoolObservable_${idx'} is BoolObservable {
+      BoolObservable.Value[] valueHistory_;
+
+      constructor() public {
+      }
+
+      function getValueHistory() public returns(BoolObservable.Value[]) {
+          valueHistory_.length = 0;
+          valueHistory_.push(BoolObservable.Value(false, 0));
+          if (block.timestamp >= ${time'}) {
+              valueHistory_.push(BoolObservable.Value(true, ${time'}));
+          }
+          if (block.timestamp > ${time'}) {
+              valueHistory_.push(BoolObservable.Value(false, ${time'} + 1));
+          }
+          return valueHistory_;
+      }
+
+      function getValue() public view returns(bool) {
+          return block.timestamp == ${time'} ? false : true;
+      }
+
+      function getTimestamp() public view returns(uint) {
+          return block.timestamp == ${time'} ? ${time'} : (block.timestamp < ${time'} ? 0 : ${time'} + 1);
       }
 
       function getFirstSince(function(bool) external pure returns(bool) condition, uint since) public returns(bool, uint) {
