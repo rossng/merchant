@@ -10,6 +10,7 @@ import System.IO.Temp (withSystemTempFile, withSystemTempDirectory, writeSystemT
 import Control.Lens
 import System.Process (callProcess, showCommandForUser)
 import System.FilePath ((</>), (-<.>), takeFileName, dropFileName)
+import TextShow
 
 import Control.Monad.IO.Class (liftIO)
 import DynFlags
@@ -73,12 +74,15 @@ compileHaskellContract contract = do
 
 generateOutput :: Contract -> OutputType -> IO T.Text
 generateOutput contract Render = return $ T.pack (printContract contract)
-generateOutput contract Solidity = return $ T.unlines [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
+generateOutput contract Solidity = do
+  let (compiledContract,_) = Solidity.compileContract contract
+  return $ T.unlines [SolidityLibrary.headers, SolidityLibrary.library, compiledContract]
 generateOutput contract Package = do
-  let solidity = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, Solidity.compileContract contract]
+  let (compiledContract,numDecisions) = Solidity.compileContract contract
+  let solidity = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, compiledContract]
   bin <- getSolcOutput solidity "WrapperContract.bin"
   abi <- getSolcOutput solidity "WrapperContract.abi"
-  return $ createPackage (T.pack $ printContract contract) ("0x" `T.append` bin) abi
+  return $ createPackage (T.pack $ printContract contract) ("0x" `T.append` bin) abi numDecisions
 
 runSolc :: T.Text -> (FilePath -> IO a) -> IO a
 runSolc solidity callback = do
@@ -90,14 +94,16 @@ runSolc solidity callback = do
 getSolcOutput :: T.Text -> String -> IO T.Text
 getSolcOutput solidity fileName = runSolc solidity $ \folderPath -> T.pack <$> readFile (folderPath </> fileName)
 
-createPackage :: T.Text -> T.Text -> T.Text -> T.Text
-createPackage name bin abi = [text|
+createPackage :: T.Text -> T.Text -> T.Text -> Int -> T.Text
+createPackage name bin abi decisions = [text|
 {
   "name": "${name}",
   "bin": "${bin}",
-  "abi": ${abi}
+  "abi": ${abi},
+  "decisions": ${decisions'}
 }
 |]
+  where decisions' = showt decisions
 
 staticContracts :: IO T.Text
 staticContracts =

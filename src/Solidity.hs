@@ -7,6 +7,7 @@ import Control.Monad.State
 import TextShow
 import Control.Lens
 import qualified Data.List.Index as IList
+import Data.Maybe (catMaybes)
 
 import Control.Monad.Free
 import Declarative
@@ -17,7 +18,7 @@ import SolidityObservable
 data Solidity = Solidity {
   _source :: [T.Text],
   _counter :: Int,
-  _runtimeObservables :: [SType],
+  _runtimeDecisions :: Int,
   _observableState :: ObsCompileState
 }
 makeLenses ''Solidity
@@ -26,7 +27,7 @@ initialSolidity :: Solidity
 initialSolidity = Solidity {
   _source = [],
   _counter = 0,
-  _runtimeObservables = [],
+  _runtimeDecisions = 0,
   _observableState = initialCompileState
 }
 
@@ -66,10 +67,10 @@ instance SolidityAlg ContractF where
     let horizon = max horizon1 horizon2
     counter %= (+1)
     n <- use counter
-    o <- showt . length <$> use runtimeObservables
-    runtimeObservables %= (++ [SBool])
-    let observableLiteral = [text|wrapper_.obs${o}_.getValue()|]
-    source %= addClass (orS horizon className1 className2 observableLiteral (showt n))
+    runtimeDecisions += 1
+    o <- showt <$> use runtimeDecisions
+    let decisionLiteral = [text|wrapper_.getDecision(${o}, getHolder())|]
+    source %= addClass (orS horizon className1 className2 decisionLiteral (showt n))
     return ("Or_" `T.append` showt n, horizon)
   solidityAlg (Scale obs c) = do
     (className, horizon) <- c
@@ -238,10 +239,10 @@ andS horizon className1 className2 n = makeClass horizon
   ""
 
 orS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-orS horizon className1 className2 obs n = makeClass horizon
+orS horizon className1 className2 decision n = makeClass horizon
   [text|Or_${n}|]
   [text|
-  if (${obs}) {
+  if (${decision}) {
       ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
@@ -428,7 +429,6 @@ anytimeObsS horizon className obsConstructor n = makeClass horizon
   [text|
   obs_ = ${obsConstructor};
   |]
-  where
 
 untilS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
 untilS horizon className obsConstructor n = makeClass horizon
@@ -446,13 +446,21 @@ untilS horizon className obsConstructor n = makeClass horizon
   obs_ = ${obsConstructor};
   |]
 
-wrapper :: [SType] -> T.Text -> T.Text
-wrapper observableTypes rootClass =
+wrapper :: Int -> T.Text -> T.Text
+wrapper numDecisions rootClass =
   [text|
   contract WrapperContract is BaseContract {
-      ${observableMembers}
+      mapping(address => bool)[${numDecisions'}] private decisions;
 
-      constructor(Marketplace marketplace${observableParameters}) public BaseContract(marketplace, 1) {
+      constructor(Marketplace marketplace) public BaseContract(marketplace, 1) {
+      }
+
+      function getDecision(uint decision, address by) public view returns(bool) {
+          return decisions[decision][by];
+      }
+
+      function setDecision(uint decision, bool value) public {
+          decisions[decision][msg.sender] = value;
       }
 
       function proceed() public whenAlive {
@@ -464,23 +472,15 @@ wrapper observableTypes rootClass =
   }
   |]
   where
-    observableParameters :: T.Text
-    observableParameters = T.concat $ IList.imap (\i t -> let i' = showt i in case t of
-                             SInt -> [text|, IntObservable obs${i'}|]
-                             SBool -> [text|, BoolObservable obs${i'}|]) observableTypes
-    observableMembers :: T.Text
-    observableMembers = T.unlines $ IList.imap (\i t -> let i' = showt i in case t of
-                             SInt -> [text|IntObservable obs${i'}_;|]
-                             SBool -> [text|BoolObservable obs${i'}_;|]) observableTypes
+    numDecisions' = showt numDecisions
 
-
-compileContract :: Contract -> T.Text
-compileContract (Pure _) = ""
-compileContract c = T.unlines $ contractSources ++ wrapperSource ++ baseObsSources ++ obsSources
+compileContract :: Contract -> (T.Text, Int)
+compileContract (Pure _) = ("", 0)
+compileContract c = (T.unlines $ contractSources ++ [wrapperSource] ++ baseObsSources ++ obsSources, solidity ^. runtimeDecisions)
   where
     compileState = handle (const $ return ("", Infinite)) solidityAlg c
     ((rootClass, horizon), solidity) = runState compileState initialSolidity
     contractSources = solidity ^. source
-    wrapperSource = [wrapper (solidity ^. runtimeObservables) rootClass]
+    wrapperSource = wrapper (solidity ^. runtimeDecisions) rootClass
     baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]
     obsSources = solidity ^. observableState . obsSource
