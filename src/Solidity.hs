@@ -67,8 +67,8 @@ instance SolidityAlg ContractF where
     let horizon = max horizon1 horizon2
     counter %= (+1)
     n <- use counter
-    runtimeDecisions += 1
     o <- showt <$> use runtimeDecisions
+    runtimeDecisions += 1
     let decisionLiteral = [text|wrapper_.getDecision(${o}, getHolder())|]
     source %= addClass (orS horizon className1 className2 decisionLiteral (showt n))
     return ("Or_" `T.append` showt n, horizon)
