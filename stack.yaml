@@ -68,3 +68,6 @@ extra-deps:
 - plugins-1.5.7
 
 allow-newer: true
+
+ghc-options:
+    "$locals": -Wall

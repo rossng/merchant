@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveFunctor, OverloadedStrings, TypeOperators, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, OverlappingInstances, GADTs #-}
+{-# LANGUAGE DeriveFunctor, OverloadedStrings, TypeOperators, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GADTs #-}
 module Declarative where
 
 import Control.Monad.Free
-import Control.Lens
 
 import ALaCarte
 import Observable

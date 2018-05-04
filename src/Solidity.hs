@@ -6,13 +6,10 @@ import qualified Data.Text as T
 import Control.Monad.State
 import TextShow
 import Control.Lens
-import qualified Data.List.Index as IList
-import Data.Maybe (catMaybes)
 
 import Control.Monad.Free
 import Declarative
 import ALaCarte
-import Observable
 import SolidityObservable
 
 data Solidity = Solidity {
@@ -141,10 +138,10 @@ instance SolidityAlg ExtendedF where
     source %= addClass (untilS horizon className obsConstructor (showt n))
     return ("Until_" `T.append` showt n, horizon)
 
-
+-- TODO add stored int to State
 instance SolidityAlg MonadicF where
   solidityAlg (GetInt c) = c 0
-  solidityAlg (SetInt i c) = c
+  solidityAlg (SetInt _ c) = c
 
 instance (SolidityAlg f, SolidityAlg g) => SolidityAlg (f :+ g) where
   solidityAlg (L x) = solidityAlg x
@@ -479,7 +476,7 @@ compileContract (Pure _) = ("", 0)
 compileContract c = (T.unlines $ contractSources ++ [wrapperSource] ++ baseObsSources ++ obsSources, solidity ^. runtimeDecisions)
   where
     compileState = handle (const $ return ("", Infinite)) solidityAlg c
-    ((rootClass, horizon), solidity) = runState compileState initialSolidity
+    ((rootClass, _), solidity) = runState compileState initialSolidity
     contractSources = solidity ^. source
     wrapperSource = wrapper (solidity ^. runtimeDecisions) rootClass
     baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]

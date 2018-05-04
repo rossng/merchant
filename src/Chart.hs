@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -w #-}
 module Chart where
 
 import Graphics.Rendering.Chart.Easy

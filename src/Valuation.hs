@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, GADTs, TypeOperators #-}
+{-# OPTIONS_GHC -w #-}
 module Valuation where
 
 import Declarative

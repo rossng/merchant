@@ -7,11 +7,7 @@ import qualified Data.Text as T
 import Control.Monad.State
 import TextShow
 import Control.Lens
-import qualified Data.List.Index as IList
 
-import Control.Monad.Free
-import Declarative
-import ALaCarte
 import Observable
 
 data SType = SInt | SBool
@@ -81,6 +77,7 @@ instance Solidifiable Int where
     obsSource %= addClass source
     return ([text|new ${name}()|])
 
+addClass :: a -> [a] -> [a]
 addClass cls sources = cls : sources
 
 constantBoolS :: Bool -> Int -> (T.Text, T.Text)
@@ -180,7 +177,7 @@ greaterThanBoolS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
 greaterThanBoolS = binaryS "GreaterThan" ">" SInt SBool
 
 binaryS :: T.Text -> T.Text -> SType -> SType -> T.Text -> T.Text -> Int -> (T.Text, T.Text)
-binaryS opName op inputType outputType constructor1 constructor2 idx =
+binaryS opName opSolidity inputType outputType constructor1 constructor2 idx =
   ([text|${opName}${outputType'}_${idx'}|],
   [text|
   contract ${opName}${outputType'}_${idx'} is ${outputType'} {
@@ -206,23 +203,23 @@ binaryS opName op inputType outputType constructor1 constructor2 idx =
 
           while (i < b1.length && j < b2.length) {
               if (b1[i].timestamp < b2[j].timestamp) {
-                  valueHistory_.push(${outputType'}.Value(b1[i].value ${op} b2[j-1].value, b1[i].timestamp));
+                  valueHistory_.push(${outputType'}.Value(b1[i].value ${opSolidity} b2[j-1].value, b1[i].timestamp));
                   i++;
               } else if (b1[i].timestamp > b2[i].timestamp) {
-                  valueHistory_.push(${outputType'}.Value(b1[i-1].value ${op} b2[j].value, b2[j].timestamp));
+                  valueHistory_.push(${outputType'}.Value(b1[i-1].value ${opSolidity} b2[j].value, b2[j].timestamp));
                   j++;
               } else {
-                  valueHistory_.push(${outputType'}.Value(b1[i].value ${op} b2[i].value, b1[i].timestamp));
+                  valueHistory_.push(${outputType'}.Value(b1[i].value ${opSolidity} b2[i].value, b1[i].timestamp));
                   i++;
                   j++;
               }
           }
           while (i < b1.length) {
-              valueHistory_.push(${outputType'}.Value(b1[i].value ${op} b2[j-1].value, b1[i].timestamp));
+              valueHistory_.push(${outputType'}.Value(b1[i].value ${opSolidity} b2[j-1].value, b1[i].timestamp));
               i++;
           }
           while (j < b2.length) {
-              valueHistory_.push(${outputType'}.Value(b1[i-1].value ${op} b2[j].value, b2[j].timestamp));
+              valueHistory_.push(${outputType'}.Value(b1[i-1].value ${opSolidity} b2[j].value, b2[j].timestamp));
               j++;
           }
 
@@ -230,7 +227,7 @@ binaryS opName op inputType outputType constructor1 constructor2 idx =
       }
 
       function getValue() public view returns(${outputRawType'}) {
-          return b1_.getValue() ${op} b2_.getValue();
+          return b1_.getValue() ${opSolidity} b2_.getValue();
       }
 
       function getTimestamp() public view returns(uint) {

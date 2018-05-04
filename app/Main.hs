@@ -5,18 +5,18 @@ import Options.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import NeatInterpolation (text)
-import System.IO (openFile, writeFile, IOMode(ReadMode), hGetContents, hPutStr, readFile)
-import System.IO.Temp (withSystemTempFile, withSystemTempDirectory, writeSystemTempFile, createTempDirectory, getCanonicalTemporaryDirectory)
+import System.IO (openFile, writeFile, IOMode(ReadMode), hGetContents, hPutStr, hClose, readFile)
+import System.IO.Temp (withSystemTempFile, withSystemTempDirectory)
 import Control.Lens
-import System.Process (callProcess, showCommandForUser)
-import System.FilePath ((</>), (-<.>), takeFileName, dropFileName)
+import System.Process (callProcess)
+import System.FilePath ((</>))
 import TextShow
 
 import Control.Monad.IO.Class (liftIO)
 import DynFlags
 import GHC
 import GHC.Paths (libdir)
-import System.Directory (getTemporaryDirectory, removePathForcibly, getDirectoryContents)
+import System.Directory (getTemporaryDirectory, removePathForcibly)
 import Unsafe.Coerce (unsafeCoerce)
 
 import CommandParser
@@ -24,7 +24,6 @@ import Declarative
 import Render
 import qualified Solidity
 import qualified SolidityLibrary
-import qualified SolidityObservable
 
 -- many thanks to eugenk - https://stackoverflow.com/questions/47680575/haskell-ghc-8-dynamically-load-import-module
 
@@ -59,7 +58,7 @@ compileHaskellContract contract = do
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
     runGhc (Just libdir) $ do
       dflags <- getSessionDynFlags
-      setSessionDynFlags dflags
+      _ <- setSessionDynFlags dflags
       target <- guessTarget moduleFile Nothing
       setTargets [target]
       r <- load LoadAllTargets
@@ -79,20 +78,22 @@ generateOutput contract Solidity = do
   return $ T.unlines [SolidityLibrary.headers, SolidityLibrary.library, compiledContract]
 generateOutput contract Package = do
   let (compiledContract,numDecisions) = Solidity.compileContract contract
-  let solidity = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, compiledContract]
-  bin <- getSolcOutput solidity "WrapperContract.bin"
-  abi <- getSolcOutput solidity "WrapperContract.abi"
+  let solidityCode = T.unlines [SolidityLibrary.headers, SolidityLibrary.library, compiledContract]
+  bin <- getSolcOutput solidityCode "WrapperContract.bin"
+  abi <- getSolcOutput solidityCode "WrapperContract.abi"
   return $ createPackage (T.pack $ printContract contract) ("0x" `T.append` bin) abi numDecisions
 
 runSolc :: T.Text -> (FilePath -> IO a) -> IO a
-runSolc solidity callback = do
-    filePath <- writeSystemTempFile "solidity.sol" (T.unpack solidity)
+runSolc solidityCode callback =
+  withSystemTempFile "solidity.sol" $ \filePath handle -> do
+    hPutStr handle (T.unpack solidityCode)
+    hClose handle
     withSystemTempDirectory "solcout" $ \folderPath -> do
       callProcess "solc" ["--overwrite", "-o", folderPath, "--optimize", "--bin", "--abi", filePath]
       callback folderPath
 
 getSolcOutput :: T.Text -> String -> IO T.Text
-getSolcOutput solidity fileName = runSolc solidity $ \folderPath -> T.pack <$> readFile (folderPath </> fileName)
+getSolcOutput solidityCode fileName = runSolc solidityCode $ \folderPath -> T.pack <$> readFile (folderPath </> fileName)
 
 createPackage :: T.Text -> T.Text -> T.Text -> Int -> T.Text
 createPackage name bin abi decisions = [text|
