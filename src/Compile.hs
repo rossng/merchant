@@ -16,7 +16,7 @@ import GHC.Paths (libdir)
 import System.Directory (getTemporaryDirectory, removePathForcibly)
 import Unsafe.Coerce (unsafeCoerce)
 
-import Declarative
+import Language
 import Render
 import qualified Solidity
 import qualified SolidityLibrary
@@ -29,7 +29,8 @@ pluginModuleNameStr = "TheContract"
 makeContractModule :: T.Text -> String
 makeContractModule contract = T.unpack [text|
   module TheContract where
-  import Declarative
+  import Language
+  import Contracts
   import Observable
   contract :: Contract
   contract = ${contract}

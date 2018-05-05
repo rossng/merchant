@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor, OverloadedStrings, TypeOperators, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GADTs #-}
-module Declarative where
+module Language where
 
 import Control.Monad.Free
 
@@ -126,22 +126,4 @@ getIntM = inject (GetInt Pure)
 setIntM :: (MonadicF :<: f) => Int -> Free f ()
 setIntM i = inject (SetInt i (Pure ()))
 
-zcbOriginal :: Time -> Int -> Currency -> Contract
-zcbOriginal t x k = scaleK' x (get' (truncate' t (one' k)))
-
-zcbOriginalM :: Time -> Int -> Currency -> Contract
-zcbOriginalM t x k = do
-  scaleKM x
-  getM
-  truncateM t
-  oneM k
-
-zcbExample :: Contract
-zcbExample = zcbOriginal 1 10 GBP
-
-effectfulExample :: ContractM
-effectfulExample = do
-  setIntM 5
-  scaleBy <- getIntM
-  scaleKM scaleBy
-  oneM GBP
+-- TODO: investigate monad implementation for primitives with more than one continuation

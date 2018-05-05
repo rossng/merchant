@@ -8,7 +8,7 @@ import TextShow
 import Control.Lens
 
 import Control.Monad.Free
-import Declarative
+import Language
 import ALaCarte
 import SolidityObservable
 

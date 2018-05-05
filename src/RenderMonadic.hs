@@ -4,7 +4,7 @@ module RenderMonadic where
 import Control.Monad.Free
 import Control.Monad.State
 
-import Declarative
+import Language
 import ALaCarte
 import Render (printObservable)
 

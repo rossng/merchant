@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, TypeOperators #-}
 module Graph where
 
-import Declarative
+import Language
 import ALaCarte
 import Render
 

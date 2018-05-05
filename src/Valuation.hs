@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -w #-}
 module Valuation where
 
-import Declarative
+import Language
 import ALaCarte
 import Observable
 

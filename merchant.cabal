@@ -16,7 +16,8 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     ALaCarte
-                     , Declarative
+                     , Language
+                     , Contracts
                      , Valuation
                      , Render
                      , RenderMonadic

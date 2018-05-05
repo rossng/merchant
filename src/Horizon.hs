@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeOperators #-}
 module Horizon where
 
-import Declarative
+import Language
 import ALaCarte
 
 horizon :: Contract -> Horizon

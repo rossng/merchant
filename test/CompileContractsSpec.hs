@@ -8,7 +8,7 @@ import System.IO (hPutStr, hClose)
 import System.IO.Temp (withSystemTempFile, withSystemTempDirectory)
 import Control.Monad (forM_)
 
-import Declarative
+import Language
 import Render
 import Observable
 import Compile

@@ -4,7 +4,7 @@ module Chart where
 import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Backend.Diagrams(toFile)
 
-import Declarative
+import Language
 import Valuation
 import Observable
 

@@ -3,7 +3,7 @@ module Render where
 
 import Control.Monad.Free
 
-import Declarative
+import Language
 import Observable
 import ALaCarte
 
