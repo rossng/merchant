@@ -14,80 +14,88 @@ data SType = SInt | SBool
 
 data ObsCompileState = ObsCompileState {
   _obsSource :: [T.Text],
-  _obsCounter :: Int
+  _obsNames :: [(SType, T.Text)]
 }
 makeLenses ''ObsCompileState
 
 initialCompileState :: ObsCompileState
 initialCompileState = ObsCompileState {
   _obsSource = [],
-  _obsCounter = 0
+  _obsNames = []
 }
 
+getObsIndex = length <$> use obsNames
+
 class Solidifiable a where
-  compileObs :: Obs a -> State ObsCompileState T.Text
+  compileObs :: Obs a -> State ObsCompileState Int
 
 instance Solidifiable Bool where
-  compileObs (External addr) = return [text|BoolObservable(${addr'})|]
+  compileObs (External addr) = do
+    n <- getObsIndex
+    obsNames %= (|> (SBool, [text|BoolObservable(${addr'})|]))
+    return n
     where addr' = T.pack addr
   compileObs (Constant value) = do
-    obsCounter += 1
-    n <- use obsCounter
+    n <- getObsIndex
     let (name, source) = constantBoolS value n
+    obsNames %= (|> (SBool, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
   compileObs (After time) = do
-    obsCounter += 1
-    n <- use obsCounter
+    n <- getObsIndex
     let (name, source) = afterBoolS time n
+    obsNames %= (|> (SBool, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
   compileObs (Before time) = do
-    obsCounter += 1
-    n <- use obsCounter
+    n <- getObsIndex
     let (name, source) = beforeBoolS time n
+    obsNames %= (|> (SBool, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
   compileObs (OAnd o1 o2) = do
-   constructor1 <- compileObs o1
-   constructor2 <- compileObs o2
-   obsCounter += 1
-   n <- use obsCounter
-   let (name, source) = andBoolS constructor1 constructor2 n
+   obsIndex1 <- compileObs o1
+   obsIndex2 <- compileObs o2
+   n <- getObsIndex
+   let (name, source) = andBoolS obsIndex1 obsIndex2 n
+   obsNames %= (|> (SBool, [text|new ${name}(this)|]))
    obsSource %= addClass source
-   return ([text|new ${name}()|])
+   return n
   compileObs (OGreaterThan o1 o2) = do
-   constructor1 <- compileObs o1
-   constructor2 <- compileObs o2
-   obsCounter += 1
-   n <- use obsCounter
-   let (name, source) = andBoolS constructor1 constructor2 n
+   obsIndex1 <- compileObs o1
+   obsIndex2 <- compileObs o2
+   n <- getObsIndex
+   let (name, source) = andBoolS obsIndex1 obsIndex2 n
+   obsNames %= (|> (SBool, [text|new ${name}(this)|]))
    obsSource %= addClass source
-   return ([text|new ${name}()|])
+   return n
   compileObs (At time) = do
-    obsCounter += 1
-    n <- use obsCounter
+    n <- getObsIndex
     let (name, source) = atBoolS time n
+    obsNames %= (|> (SBool, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
 
 instance Solidifiable Int where
-  compileObs (External addr) = return [text|IntObservable(${addr'})|]
+  compileObs (External addr) = do
+    n <- getObsIndex
+    obsNames %= (|> (SInt, [text|IntObservable(${addr'})|]))
+    return n
     where addr' = T.pack addr
   compileObs (Constant value) = do
-    obsCounter += 1
-    n <- use obsCounter
+    n <- getObsIndex
     let (name, source) = constantIntS value n
+    obsNames %= (|> (SInt, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
   compileObs (OSubtract o1 o2) = do
-    constructor1 <- compileObs o1
-    constructor2 <- compileObs o2
-    obsCounter += 1
-    n <- use obsCounter
-    let (name, source) = subtractIntS constructor1 constructor2 n
+    obsIndex1 <- compileObs o1
+    obsIndex2 <- compileObs o2
+    n <- getObsIndex
+    let (name, source) = subtractIntS obsIndex1 obsIndex2 n
+    obsNames %= (|> (SInt, [text|new ${name}(this)|]))
     obsSource %= addClass source
-    return ([text|new ${name}()|])
+    return n
 
 addClass :: a -> [a] -> [a]
 addClass cls sources = cls : sources
@@ -99,7 +107,7 @@ constantBoolS value idx =
   contract ConstantBoolObservable_${idx'} is BoolObservable {
       BoolObservable.Value[] public valueHistory_;
 
-      constructor() public {
+      constructor(ObsWrapper wrapper) public BoolObservable(wrapper) {
           valueHistory_.push(BoolObservable.Value(${value'}, 0));
       }
 
@@ -135,7 +143,7 @@ afterBoolS time idx =
   contract AfterBoolObservable_${idx'} is BoolObservable {
       BoolObservable.Value[] valueHistory_;
 
-      constructor() public {
+      constructor(ObsWrapper wrapper) public BoolObservable(wrapper) {
       }
 
       function getValueHistory() public returns(BoolObservable.Value[]) {
@@ -189,7 +197,7 @@ beforeBoolS time idx =
   contract BeforeBoolObservable_${idx'} is BoolObservable {
       BoolObservable.Value[] valueHistory_;
 
-      constructor() public {
+      constructor(ObsWrapper wrapper) public BoolObservable(wrapper) {
       }
 
       function getValueHistory() public returns(BoolObservable.Value[]) {
@@ -241,7 +249,7 @@ atBoolS time idx =
   contract AtBoolObservable_${idx'} is BoolObservable {
       BoolObservable.Value[] valueHistory_;
 
-      constructor() public {
+      constructor(ObsWrapper wrapper) public BoolObservable(wrapper) {
       }
 
       function getValueHistory() public returns(BoolObservable.Value[]) {
@@ -289,14 +297,14 @@ atBoolS time idx =
   where time' = showt time
         idx' = showt idx
 
-andBoolS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
+andBoolS :: Int -> Int -> Int -> (T.Text, T.Text)
 andBoolS = binaryS "And" "&&" SBool SBool
 
-greaterThanBoolS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
+greaterThanBoolS :: Int -> Int -> Int -> (T.Text, T.Text)
 greaterThanBoolS = binaryS "GreaterThan" ">" SInt SBool
 
-binaryS :: T.Text -> T.Text -> SType -> SType -> T.Text -> T.Text -> Int -> (T.Text, T.Text)
-binaryS opName opSolidity inputType outputType constructor1 constructor2 idx =
+binaryS :: T.Text -> T.Text -> SType -> SType -> Int -> Int -> Int -> (T.Text, T.Text)
+binaryS opName opSolidity inputType outputType obsIndex1 obsIndex2 idx =
   ([text|${opName}${outputType'}_${idx'}|],
   [text|
   contract ${opName}${outputType'}_${idx'} is ${outputType'} {
@@ -304,9 +312,9 @@ binaryS opName opSolidity inputType outputType constructor1 constructor2 idx =
       ${inputType'} b2_;
       ${outputType'}.Value[] public valueHistory_;
 
-      constructor() public {
-          b1_ = ${constructor1};
-          b2_ = ${constructor2};
+      constructor(ObsWrapper wrapper) public ${outputType'}(wrapper) {
+          b1_ = wrapper_.deploy${inputType'}(${obsIndex1'});
+          b2_ = wrapper_.deploy${inputType'}(${obsIndex2'});
       }
 
       function getValueHistory() public returns(${outputType'}.Value[]) {
@@ -389,6 +397,8 @@ binaryS opName opSolidity inputType outputType constructor1 constructor2 idx =
         outputRawType' = case outputType of
           SBool -> "bool"
           SInt -> "int"
+        obsIndex1' = showt obsIndex1
+        obsIndex2' = showt obsIndex2
 
 constantIntS :: Int -> Int -> (T.Text, T.Text)
 constantIntS value idx =
@@ -397,7 +407,7 @@ constantIntS value idx =
   contract ConstantIntObservable_${idx'} is IntObservable {
       IntObservable.Value[] public valueHistory_;
 
-      constructor() public {
+      constructor(ObsWrapper wrapper) public IntObservable(wrapper) {
           valueHistory_.push(IntObservable.Value(${value'}, 0));
       }
 
@@ -426,7 +436,7 @@ constantIntS value idx =
         idx' = showt idx
 
 
-subtractIntS :: T.Text -> T.Text -> Int -> (T.Text, T.Text)
+subtractIntS :: Int -> Int -> Int -> (T.Text, T.Text)
 subtractIntS = binaryS "Subtract" "-" SInt SInt
 
 baseObservableS :: T.Text -> T.Text -> T.Text
@@ -436,6 +446,12 @@ baseObservableS name typeName =
       struct Value {
           ${typeName} value;
           uint timestamp;
+      }
+
+      ObsWrapper wrapper_;
+
+      constructor(ObsWrapper wrapper) {
+          wrapper_ = wrapper;
       }
 
       function getValueHistory() public returns(${name}Observable.Value[]);

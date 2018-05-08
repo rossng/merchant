@@ -59,6 +59,8 @@ contracts =
   , anytimeO' (OAnd (Before 2000) (After 1000)) (one' USD)
   ]
 
+-- TODO: add Observable compilation tests
+
 spec :: Spec
 spec =
   forM_ contracts $ \c ->
