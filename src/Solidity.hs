@@ -14,7 +14,7 @@ import SolidityObservable
 
 data Solidity = Solidity {
   _source :: [T.Text],
-  _counter :: Int,
+  _classes :: [T.Text],
   _runtimeDecisions :: Int,
   _observableState :: ObsCompileState
 }
@@ -23,120 +23,124 @@ makeLenses ''Solidity
 initialSolidity :: Solidity
 initialSolidity = Solidity {
   _source = [],
-  _counter = 0,
+  _classes = [],
   _runtimeDecisions = 0,
   _observableState = initialCompileState
 }
 
 class Functor f => SolidityAlg f where
-  solidityAlg :: f (State Solidity (T.Text, Horizon)) -> State Solidity (T.Text, Horizon)
+  solidityAlg :: f (State Solidity (Int, Horizon)) -> State Solidity (Int, Horizon)
+
+getClassIndex = length <$> use classes
+
+makeClassName classType idx = classType `T.append` "_" `T.append` showt idx
 
 instance SolidityAlg ContractF where
   solidityAlg Zero = do
     let horizon = Infinite
-    counter %= (+1)
-    n <- use counter
+    n <- getClassIndex
+    classes %= (|> makeClassName "Zero" n)
     source %= addClass (zeroS horizon (showt n))
-    return ("Zero_" `T.append` showt n, horizon)
+    return (n, horizon)
   solidityAlg (One k) = do
     let horizon = Infinite
-    counter %= (+1)
-    n <- use counter
+    n <- length <$> use classes
+    classes %= (|> makeClassName "One" n)
     source %= addClass (oneS horizon k (showt n))
-    return ("One_" `T.append` showt n, horizon)
+    return (n, horizon)
   solidityAlg (Give c) = do
-    counter %= (+1)
-    n <- use counter
-    (className, horizon) <- c
-    source %= addClass (giveS horizon className (showt n))
-    return ("Give_" `T.append` showt n, horizon)
+    (classId, horizon) <- c
+    n <- getClassIndex
+    classes %= (|> makeClassName "Give" n)
+    source %= addClass (giveS horizon (showt classId) (showt n))
+    return (n, horizon)
   solidityAlg (And c1 c2) = do
-    (className1, horizon1) <- c1
-    (className2, horizon2) <- c2
+    (classId1, horizon1) <- c1
+    (classId2, horizon2) <- c2
     let horizon = max horizon1 horizon2
-    counter %= (+1)
-    n <- use counter
-    source %= addClass (andS horizon className1 className2 (showt n))
-    return ("And_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "And" n)
+    source %= addClass (andS horizon (showt classId1) (showt classId2) (showt n))
+    return (n, horizon)
   solidityAlg (Or c1 c2) = do
-    (className1, horizon1) <- c1
-    (className2, horizon2) <- c2
+    (classId1, horizon1) <- c1
+    (classId2, horizon2) <- c2
     let horizon = max horizon1 horizon2
-    counter %= (+1)
-    n <- use counter
+    n <- getClassIndex
+    classes %= (|> makeClassName "Or" n)
     o <- showt <$> use runtimeDecisions
     runtimeDecisions += 1
     let decisionLiteral = [text|wrapper_.getDecision(${o}, getHolder())|]
-    source %= addClass (orS horizon className1 className2 decisionLiteral (showt n))
-    return ("Or_" `T.append` showt n, horizon)
+    source %= addClass (orS horizon (showt classId1) (showt classId2) decisionLiteral (showt n))
+    return (n, horizon)
   solidityAlg (Scale obs c) = do
-    (className, horizon) <- c
-    counter %= (+1)
-    n <- use counter
+    (classId, horizon) <- c
+    n <- getClassIndex
+    classes %= (|> makeClassName "Scale" n)
     obsConstructor <- zoom observableState (compileObs obs)
-    source %= addClass (scaleS horizon className obsConstructor (showt n))
-    return ("Scale_" `T.append` showt n, horizon)
+    source %= addClass (scaleS horizon (showt classId) obsConstructor (showt n))
+    return (n, horizon)
 
 instance SolidityAlg OriginalF where
   solidityAlg (Truncate t c) = do
-    (className, horizon1) <- c
+    (classId, horizon1) <- c
     let horizon = min horizon1 (Time t)
-    counter += 1
-    n <- use counter
-    source %= addClass (truncateS horizon className (showt t) (showt n))
-    return ("Truncate_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "Truncate" n)
+    source %= addClass (truncateS horizon (showt classId) (showt t) (showt n))
+    return (n, horizon)
   solidityAlg (Then c1 c2) = do
-    (className1, horizon1) <- c1
-    (className2, horizon2) <- c2
+    (classId1, horizon1) <- c1
+    (classId2, horizon2) <- c2
     let horizon = max horizon1 horizon2
-    counter += 1
-    n <- use counter
-    source %= addClass (thenS horizon className1 className2 horizon1 horizon2 (showt n))
-    return ("Then_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "Then" n)
+    source %= addClass (thenS horizon (showt classId1) (showt classId2) horizon1 horizon2 (showt n))
+    return (n, horizon)
   solidityAlg (Get c) = do
-    (className, horizon) <- c
-    counter += 1
-    n <- use counter
-    source %= addClass (getS horizon className (showt n))
-    return ("Get_" `T.append` showt n, horizon)
+    (classId, horizon) <- c
+    n <- getClassIndex
+    classes %= (|> makeClassName "Get" n)
+    source %= addClass (getS horizon (showt classId) (showt n))
+    return (n, horizon)
   solidityAlg (Anytime c) = do
-    (className, horizon) <- c
-    counter += 1
-    n <- use counter
-    source %= addClass (anytimeS horizon className (showt n))
-    return ("Anytime_" `T.append` showt n, horizon)
+    (classId, horizon) <- c
+    n <- getClassIndex
+    classes %= (|> makeClassName "Anytime" n)
+    source %= addClass (anytimeS horizon (showt classId) (showt n))
+    return (n, horizon)
 
 instance SolidityAlg ExtendedF where
   solidityAlg (Cond obs c1 c2) = do
-    (className1, horizon1) <- c1
-    (className2, horizon2) <- c2
+    (classId1, horizon1) <- c1
+    (classId2, horizon2) <- c2
     let horizon = max horizon1 horizon2
     obsConstructor <- zoom observableState (compileObs obs)
-    counter += 1
-    n <- use counter
-    source %= addClass (condS horizon className1 className2 obsConstructor (showt n))
-    return ("Cond_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "Cond" n)
+    source %= addClass (condS horizon (showt classId1) (showt classId2) obsConstructor (showt n))
+    return (n, horizon)
   solidityAlg (When obs c) = do
-    (className, horizon) <- c
+    (classId, horizon) <- c
     obsConstructor <- zoom observableState (compileObs obs)
-    counter += 1
-    n <- use counter
-    source %= addClass (whenS horizon className obsConstructor (showt n))
-    return ("When_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "When" n)
+    source %= addClass (whenS horizon (showt classId) obsConstructor (showt n))
+    return (n, horizon)
   solidityAlg (AnytimeO obs c) = do
-    (className, horizon) <- c
+    (classId, horizon) <- c
     obsConstructor <- zoom observableState (compileObs obs)
-    counter += 1
-    n <- use counter
-    source %= addClass (anytimeObsS horizon className obsConstructor (showt n))
-    return ("AnytimeO_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "AnytimeO" n)
+    source %= addClass (anytimeObsS horizon (showt classId) obsConstructor (showt n))
+    return (n, horizon)
   solidityAlg (Until obs c) = do
-    (className, horizon) <- c
+    (classId, horizon) <- c
     obsConstructor <- zoom observableState (compileObs obs)
-    counter += 1
-    n <- use counter
-    source %= addClass (untilS horizon className obsConstructor (showt n))
-    return ("Until_" `T.append` showt n, horizon)
+    n <- getClassIndex
+    classes %= (|> makeClassName "Until" n)
+    source %= addClass (untilS horizon (showt classId) obsConstructor (showt n))
+    return (n, horizon)
 
 -- TODO add stored int to State
 instance SolidityAlg MonadicF where
@@ -210,10 +214,10 @@ oneS horizon k n = makeClass horizon
     k' = currency k
 
 giveS :: Horizon -> T.Text -> T.Text -> T.Text
-giveS horizon className n = makeClass horizon
+giveS horizon classId n = makeClass horizon
   [text|Give_${n}|]
   [text|
-  ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+  BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
   marketplace_.give(next);
   kill(BaseContract.KillReason.EXECUTED);
   |]
@@ -221,11 +225,11 @@ giveS horizon className n = makeClass horizon
   ""
 
 andS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-andS horizon className1 className2 n = makeClass horizon
+andS horizon classId1 classId2 n = makeClass horizon
   [text|And_${n}|]
   [text|
-  ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
-  ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+  BaseContract next1 = wrapper_.deploy(${classId1}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
+  BaseContract next2 = wrapper_.deploy(${classId2}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
   marketplace_.delegate(next1);
   marketplace_.delegate(next2);
   next1.proceed();
@@ -236,15 +240,15 @@ andS horizon className1 className2 n = makeClass horizon
   ""
 
 orS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-orS horizon className1 className2 decision n = makeClass horizon
+orS horizon classId1 classId2 decision n = makeClass horizon
   [text|Or_${n}|]
   [text|
   if (${decision}) {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next2 = wrapper_.deploy(${classId2}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
   } else {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next1 = wrapper_.deploy(${classId1}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
   }
@@ -254,10 +258,10 @@ orS horizon className1 className2 decision n = makeClass horizon
   ""
 
 scaleS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-scaleS horizon className obsConstructor n = makeClass horizon
+scaleS horizon classId obsConstructor n = makeClass horizon
   [text|Scale_${n}|]
   [text|
-  ${className} next = new ${className}(marketplace_, scale_ * obs_.getValue(), wrapper_, false, BoolObservable(0));
+  BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_ * obs_.getValue(), wrapper_, false, BoolObservable(0));
   marketplace_.delegate(next);
   next.proceed();
   kill(BaseContract.KillReason.EXECUTED);
@@ -266,11 +270,11 @@ scaleS horizon className obsConstructor n = makeClass horizon
   [text|obs_ = ${obsConstructor};|]
 
 truncateS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-truncateS horizon className time n = makeClass horizon
+truncateS horizon classId time n = makeClass horizon
   [text|Truncate_${n}|]
   [text|
   if (now <= ${time}) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill(BaseContract.KillReason.EXECUTED);
@@ -282,16 +286,16 @@ truncateS horizon className time n = makeClass horizon
   ""
 
 thenS :: Horizon -> T.Text -> T.Text -> Horizon -> Horizon -> T.Text -> T.Text
-thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
+thenS horizon classId1 classId2 horizon1 horizon2 n = makeClass horizon
   [text|Then_${n}|]
   [text|
   if (${horizon1'}) {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next1 = wrapper_.deploy(${classId1}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
       kill(BaseContract.KillReason.EXECUTED);
   } else if (${horizon2'}) {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next2 = wrapper_.deploy(${classId2}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
       kill(BaseContract.KillReason.EXECUTED);
@@ -311,11 +315,11 @@ thenS horizon className1 className2 horizon1 horizon2 n = makeClass horizon
 
 
 getS :: Horizon -> T.Text -> T.Text -> T.Text
-getS horizon className n = makeClass horizon
+getS horizon classId n = makeClass horizon
   [text|Get_${n}|]
   [text|
   if (${atHorizon}) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill(BaseContract.KillReason.EXECUTED);
@@ -335,13 +339,13 @@ getS horizon className n = makeClass horizon
 
 -- TODO: fix this
 anytimeS :: Horizon -> T.Text -> T.Text -> T.Text
-anytimeS horizon className n = makeClass horizon
+anytimeS horizon classId n = makeClass horizon
   [text|Anytime_${n}|]
   [text|
   if (${afterHorizon}) {
       kill(BaseContract.KillReason.FAILED);
   } else if ((${beforeOrAtHorizon} && msg.sender == getHolder()) || (${atHorizon} && msg.sender == getCounterparty())) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill(BaseContract.KillReason.EXECUTED);
@@ -361,15 +365,15 @@ anytimeS horizon className n = makeClass horizon
       Infinite -> [text|false|]
 
 condS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text
-condS horizon className1 className2 obsConstructor n = makeClass horizon
+condS horizon classId1 classId2 obsConstructor n = makeClass horizon
   [text|Cond_${n}|]
   [text|
   if (obs_.getValue()) {
-      ${className1} next1 = new ${className1}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next1 = wrapper_.deploy(${classId1}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next1);
       next1.proceed();
   } else {
-      ${className2} next2 = new ${className2}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next2 = wrapper_.deploy(${classId2}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next2);
       next2.proceed();
   }
@@ -379,7 +383,7 @@ condS horizon className1 className2 obsConstructor n = makeClass horizon
   [text|obs_ = ${obsConstructor};|]
 
 whenS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-whenS horizon className obsConstructor n = makeClass horizon
+whenS horizon classId obsConstructor n = makeClass horizon
   [text|When_${n}|]
   [text|
   bool fulfilled;
@@ -388,7 +392,7 @@ whenS horizon className obsConstructor n = makeClass horizon
   if (fulfilled) {
       if (when <= now && now <= (when + ${timeDelta})) {
           if (msg.sender == getHolder() || msg.sender == getCounterparty() || msg.sender == getCreator()) {
-              ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+              BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
               marketplace_.delegate(next);
               next.proceed();
               kill(BaseContract.KillReason.EXECUTED);
@@ -410,11 +414,11 @@ whenS horizon className obsConstructor n = makeClass horizon
   |]
 
 anytimeObsS :: Horizon -> T.Text -> T.Text -> T.Text -> T.Text
-anytimeObsS horizon className obsConstructor n = makeClass horizon
+anytimeObsS horizon classId obsConstructor n = makeClass horizon
   [text|AnytimeO_${n}|]
   [text|
   if (obs_.getValue() && msg.sender == getHolder()) {
-      ${className} next = new ${className}(marketplace_, scale_, wrapper_, false, BoolObservable(0));
+      BaseContract next = wrapper_.deploy(${classId}, marketplace_, scale_, wrapper_, false, BoolObservable(0));
       marketplace_.delegate(next);
       next.proceed();
       kill(BaseContract.KillReason.EXECUTED);
@@ -443,8 +447,8 @@ untilS horizon className obsConstructor n = makeClass horizon
   obs_ = ${obsConstructor};
   |]
 
-wrapper :: Int -> T.Text -> T.Text
-wrapper numDecisions rootClass =
+wrapper :: Int -> [T.Text] -> T.Text -> T.Text
+wrapper numDecisions classes rootClass =
   [text|
   contract WrapperContract is BaseContract {
       mapping(address => bool)[${numDecisions'}] private decisions;
@@ -466,18 +470,30 @@ wrapper numDecisions rootClass =
           next.proceed();
           kill(BaseContract.KillReason.EXECUTED);
       }
+
+      function deploy(uint classId, Marketplace marketplace, int scale, WrapperContract wrapper, bool until, BoolObservable untilObs) public returns(BaseContract) {
+          ${deployOptions}
+          assert(false);
+      }
   }
   |]
   where
     numDecisions' = showt numDecisions
+    deployOptions = T.unlines $ imap deployOption classes
+    deployOption classId className = [text|
+    if (classId == ${classId'}) {
+        return BaseContract(new ${className}(marketplace, scale, wrapper, until, untilObs));
+    }
+    |]
+      where classId' = showt classId
 
 compileContract :: Contract -> (T.Text, Int)
 compileContract (Pure _) = ("", 0)
 compileContract c = (T.unlines $ contractSources ++ [wrapperSource] ++ baseObsSources ++ obsSources, solidity ^. runtimeDecisions)
   where
-    compileState = handle (const $ return ("", Infinite)) solidityAlg c
+    compileState = handle (const $ return (0, Infinite)) solidityAlg c
     ((rootClass, _), solidity) = runState compileState initialSolidity
     contractSources = solidity ^. source
-    wrapperSource = wrapper (solidity ^. runtimeDecisions) rootClass
+    wrapperSource = wrapper (solidity ^. runtimeDecisions) (solidity ^. classes) (last $ solidity ^. classes)
     baseObsSources = [baseObservableS "Int" "int", baseObservableS "Bool" "bool"]
     obsSources = solidity ^. observableState . obsSource
