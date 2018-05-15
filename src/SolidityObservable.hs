@@ -450,7 +450,7 @@ baseObservableS name typeName =
 
       ObsWrapper wrapper_;
 
-      constructor(ObsWrapper wrapper) {
+      constructor(ObsWrapper wrapper) public {
           wrapper_ = wrapper;
       }
 
