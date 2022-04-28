@@ -1,3 +1,3 @@
 # merchant
 
-add description of merchant here
+[Free Trade: Composable Smart Contracts](https://www.researchgate.net/publication/326693413_Free_Trade_Composable_Smart_Contracts)
